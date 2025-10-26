@@ -70,6 +70,33 @@ const BookReaderScreen = () => {
       ? originalUrl
       : `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(originalUrl)}`;
 
+  // Helper function to get color name from hex value
+  const getColorName = (hexColor: string): string => {
+    const colorMap: { [key: string]: string } = {
+      '#fef9c3': 'yellow',
+      '#d1fae5': 'green', 
+      '#dbeafe': 'blue',
+      '#fce7f3': 'pink',
+      '#e9d5ff': 'purple',
+      '#fed7aa': 'orange'
+    };
+    return colorMap[hexColor] || 'yellow';
+  };
+
+  // Load existing highlights into the PDF
+  const loadExistingHighlights = () => {
+    if (highlights.length > 0 && webViewRef.current) {
+      const highlightData = highlights.map(h => ({
+        text: h.text,
+        color: getColorName(h.color || '#fef9c3')
+      }));
+      
+      webViewRef.current.injectJavaScript(`
+        window.loadHighlights(${JSON.stringify(highlightData)});
+      `);
+    }
+  };
+
   useEffect(() => {
     if (userId && currentBookId) {
       fetchHighlights();
@@ -247,6 +274,12 @@ const BookReaderScreen = () => {
         prev.map(h => h.id === tempHighlight.id ? savedHighlight : h)
       );
       
+      // Add visual highlight to the PDF
+      const colorName = getColorName(color);
+      webViewRef.current?.injectJavaScript(`
+        window.addHighlight("${highlightText.replace(/"/g, '\\"')}", "${colorName}");
+      `);
+      
       // Update book stats
       fetchOrCreateBookStats();
     } catch (error) {
@@ -282,6 +315,11 @@ const BookReaderScreen = () => {
       
       if (!response.ok) throw new Error('Failed to delete');
       
+      // Remove visual highlight from PDF
+      webViewRef.current?.injectJavaScript(`
+        window.removeHighlight("${item.text.replace(/"/g, '\\"')}");
+      `);
+      
       // Update book stats
       fetchOrCreateBookStats();
     } catch (error) {
@@ -292,13 +330,41 @@ const BookReaderScreen = () => {
     }
   };
 
-  // 🎯 Jump to a highlight (placeholder functionality)
+  // 🎯 Jump to a highlight in the PDF
   const jumpToHighlight = (id: string) => {
     const highlight = highlights.find(h => h.id === id);
-    if (highlight) {
-      Alert.alert('Jump to Highlight', `Navigating to:\n\n"${highlight.text}"`);
-      // Future enhancement: Inject JS to find and scroll to the text in the WebView.
-      // webViewRef.current?.injectJavaScript(`window.find('${highlight.text}');`);
+    if (highlight && webViewRef.current) {
+      // Close sidebar first
+      setSidebarOpen(false);
+      
+      // Scroll to the highlight in the PDF
+      webViewRef.current.injectJavaScript(`
+        (function() {
+          const highlightElement = document.querySelector('[data-highlight-text="${highlight.text.replace(/"/g, '\\"')}"]');
+          if (highlightElement) {
+            highlightElement.scrollIntoView({ 
+              behavior: 'smooth', 
+              block: 'center' 
+            });
+            
+            // Flash the highlight to draw attention
+            const originalBg = highlightElement.style.backgroundColor;
+            highlightElement.style.backgroundColor = '#ff6b6b';
+            highlightElement.style.transform = 'scale(1.05)';
+            highlightElement.style.transition = 'all 0.3s ease';
+            
+            setTimeout(() => {
+              highlightElement.style.backgroundColor = originalBg;
+              highlightElement.style.transform = 'scale(1)';
+            }, 1000);
+          } else {
+            // Fallback: try to find and scroll to the text
+            if (window.find && window.find("${highlight.text.replace(/"/g, '\\"')}")) {
+              // Text found and highlighted by browser
+            }
+          }
+        })();
+      `);
     }
   };
 
@@ -314,30 +380,242 @@ const BookReaderScreen = () => {
     });
   };
 
-  // 📩 Handle messages from the WebView (e.g., text selection)
+  // 📩 Handle messages from the WebView (e.g., text selection, highlight clicks)
   const onMessage = (event: any) => {
     try {
       const msg = JSON.parse(event.nativeEvent.data);
+      
       if (msg.type === 'TEXT_SELECTED' && msg.text) {
         setSelectedText(msg.text);
+      } else if (msg.type === 'HIGHLIGHT_CLICKED') {
+        // Handle highlight click - could show options to edit or remove
+        const highlight = highlights.find(h => h.text === msg.text);
+        if (highlight) {
+          Alert.alert(
+            'Highlight Options',
+            `"${msg.text.substring(0, 50)}${msg.text.length > 50 ? '...' : ''}"`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { 
+                text: 'Remove', 
+                style: 'destructive',
+                onPress: () => handleRemoveHighlight(highlight)
+              },
+              {
+                text: 'Jump to Sidebar',
+                onPress: () => {
+                  setSidebarOpen(true);
+                  // Could scroll to this highlight in the sidebar
+                }
+              }
+            ]
+          );
+        }
       }
     } catch (err) {
       // It's common for other scripts to post messages, so we can ignore non-JSON data.
     }
   };
 
-  // 👨‍💻 Inject JavaScript into the WebView to capture text selections
+  // 👨‍💻 Enhanced JavaScript injection for text selection and highlighting
   const injectedJavaScript = `
-    document.addEventListener('mouseup', function() {
-      var selectedText = window.getSelection().toString().trim();
-      if (selectedText.length > 0) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'TEXT_SELECTED',
-          text: selectedText
-        }));
+    (function() {
+      // Store highlights for visual display
+      let savedHighlights = [];
+      
+      // CSS for highlight styles
+      const highlightStyles = \`
+        .highlight-yellow { background-color: #fef9c3 !important; border: 1px solid #fde68a; }
+        .highlight-green { background-color: #d1fae5 !important; border: 1px solid #a7f3d0; }
+        .highlight-blue { background-color: #dbeafe !important; border: 1px solid #bfdbfe; }
+        .highlight-pink { background-color: #fce7f3 !important; border: 1px solid #fbcfe8; }
+        .highlight-purple { background-color: #e9d5ff !important; border: 1px solid #d8b4fe; }
+        .highlight-orange { background-color: #fed7aa !important; border: 1px solid #fdba74; }
+        .highlight { padding: 2px; border-radius: 3px; cursor: pointer; }
+      \`;
+      
+      // Add styles to document
+      const styleSheet = document.createElement('style');
+      styleSheet.textContent = highlightStyles;
+      document.head.appendChild(styleSheet);
+      
+      // Enhanced text selection with word boundary detection
+      let selectionTimeout;
+      
+      function getExtendedSelection() {
+        const selection = window.getSelection();
+        if (selection.rangeCount === 0) return null;
+        
+        const range = selection.getRangeAt(0);
+        let text = selection.toString().trim();
+        
+        if (text.length === 0) return null;
+        
+        // Extend selection to word boundaries if needed
+        const startContainer = range.startContainer;
+        const endContainer = range.endContainer;
+        
+        if (startContainer.nodeType === Node.TEXT_NODE && endContainer.nodeType === Node.TEXT_NODE) {
+          const startText = startContainer.textContent;
+          const endText = endContainer.textContent;
+          
+          let startOffset = range.startOffset;
+          let endOffset = range.endOffset;
+          
+          // Extend to start of word if we're in the middle
+          while (startOffset > 0 && /\\w/.test(startText[startOffset - 1])) {
+            startOffset--;
+          }
+          
+          // Extend to end of word if we're in the middle
+          while (endOffset < endText.length && /\\w/.test(endText[endOffset])) {
+            endOffset++;
+          }
+          
+          // Create new range with extended boundaries
+          const newRange = document.createRange();
+          newRange.setStart(startContainer, startOffset);
+          newRange.setEnd(endContainer, endOffset);
+          
+          text = newRange.toString().trim();
+          
+          // Update selection to show extended text
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+        }
+        
+        return {
+          text: text,
+          range: range.cloneRange(),
+          rect: range.getBoundingClientRect()
+        };
       }
-    });
-    true; // Required for injectedJavaScript to work correctly on both platforms
+      
+      // Handle text selection
+      document.addEventListener('mouseup', function(e) {
+        clearTimeout(selectionTimeout);
+        selectionTimeout = setTimeout(() => {
+          const selectionData = getExtendedSelection();
+          if (selectionData && selectionData.text.length > 0) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'TEXT_SELECTED',
+              text: selectionData.text,
+              rect: {
+                x: selectionData.rect.x,
+                y: selectionData.rect.y,
+                width: selectionData.rect.width,
+                height: selectionData.rect.height
+              }
+            }));
+          }
+        }, 100);
+      });
+      
+      // Handle touch selection for mobile
+      document.addEventListener('touchend', function(e) {
+        clearTimeout(selectionTimeout);
+        selectionTimeout = setTimeout(() => {
+          const selectionData = getExtendedSelection();
+          if (selectionData && selectionData.text.length > 0) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'TEXT_SELECTED',
+              text: selectionData.text,
+              rect: {
+                x: selectionData.rect.x,
+                y: selectionData.rect.y,
+                width: selectionData.rect.width,
+                height: selectionData.rect.height
+              }
+            }));
+          }
+        }, 200);
+      });
+      
+      // Function to add highlight to the document
+      window.addHighlight = function(text, color) {
+        const colorClass = 'highlight-' + color.replace('#', '').toLowerCase();
+        const walker = document.createTreeWalker(
+          document.body,
+          NodeFilter.SHOW_TEXT,
+          null,
+          false
+        );
+        
+        const textNodes = [];
+        let node;
+        while (node = walker.nextNode()) {
+          if (node.textContent.includes(text)) {
+            textNodes.push(node);
+          }
+        }
+        
+        textNodes.forEach(textNode => {
+          const parent = textNode.parentNode;
+          const content = textNode.textContent;
+          const index = content.indexOf(text);
+          
+          if (index !== -1) {
+            const beforeText = content.substring(0, index);
+            const highlightText = content.substring(index, index + text.length);
+            const afterText = content.substring(index + text.length);
+            
+            const span = document.createElement('span');
+            span.className = 'highlight ' + colorClass;
+            span.textContent = highlightText;
+            span.setAttribute('data-highlight-text', text);
+            span.setAttribute('data-highlight-color', color);
+            
+            // Add click handler to highlight
+            span.addEventListener('click', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'HIGHLIGHT_CLICKED',
+                text: text,
+                color: color
+              }));
+            });
+            
+            const fragment = document.createDocumentFragment();
+            if (beforeText) fragment.appendChild(document.createTextNode(beforeText));
+            fragment.appendChild(span);
+            if (afterText) fragment.appendChild(document.createTextNode(afterText));
+            
+            parent.replaceChild(fragment, textNode);
+          }
+        });
+        
+        savedHighlights.push({ text, color });
+      };
+      
+      // Function to remove highlight
+      window.removeHighlight = function(text) {
+        const highlights = document.querySelectorAll('[data-highlight-text="' + text + '"]');
+        highlights.forEach(highlight => {
+          const parent = highlight.parentNode;
+          parent.replaceChild(document.createTextNode(highlight.textContent), highlight);
+          parent.normalize();
+        });
+        
+        savedHighlights = savedHighlights.filter(h => h.text !== text);
+      };
+      
+      // Function to load existing highlights
+      window.loadHighlights = function(highlights) {
+        highlights.forEach(highlight => {
+          window.addHighlight(highlight.text, highlight.color);
+        });
+      };
+      
+      // Clear selection when clicking elsewhere
+      document.addEventListener('click', function(e) {
+        if (!e.target.classList.contains('highlight')) {
+          window.getSelection().removeAllRanges();
+        }
+      });
+      
+    })();
+    true; // Required for injectedJavaScript to work correctly
   `;
 
   return (
@@ -366,7 +644,13 @@ const BookReaderScreen = () => {
       <WebView
         ref={webViewRef}
         source={{ uri: finalUrl }}
-        onLoadEnd={() => setLoading(false)}
+        onLoadEnd={() => {
+          setLoading(false);
+          // Load existing highlights after PDF loads
+          setTimeout(() => {
+            loadExistingHighlights();
+          }, 1000); // Wait a bit for the PDF to fully render
+        }}
         // ✅ FIX 2: Added error handling to prevent infinite loading state.
         onError={() => {
           setLoading(false);
@@ -423,6 +707,11 @@ const BookReaderScreen = () => {
                   borderColor: selectedColor === color.value ? '#2563eb' : color.border,
                   alignItems: 'center',
                   justifyContent: 'center',
+                  shadowColor: selectedColor === color.value ? '#2563eb' : 'transparent',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 4,
+                  elevation: selectedColor === color.value ? 4 : 0,
                 }}
                 activeOpacity={0.7}
               >
@@ -432,6 +721,82 @@ const BookReaderScreen = () => {
               </TouchableOpacity>
             ))}
           </ScrollView>
+          
+          {/* Color Preview */}
+          <View style={{ marginBottom: 16 }}>
+            <Text style={{ color: '#6b7280', fontSize: 12, marginBottom: 6 }}>Preview:</Text>
+            <View
+              style={{
+                backgroundColor: selectedColor,
+                padding: 8,
+                borderRadius: 6,
+                borderWidth: 1,
+                borderColor: HIGHLIGHT_COLORS.find(c => c.value === selectedColor)?.border || '#e5e7eb',
+              }}
+            >
+              <Text style={{ color: '#1f2937', fontSize: 13, fontWeight: '500' }}>
+                This is how your highlight will look
+              </Text>
+            </View>
+          </View>
+
+          {/* Selection Tools */}
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+            <TouchableOpacity
+              onPress={() => {
+                // Extend selection to include more words
+                webViewRef.current?.injectJavaScript(`
+                  const selection = window.getSelection();
+                  if (selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    const text = selection.toString();
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: 'TEXT_SELECTED',
+                      text: text
+                    }));
+                  }
+                `);
+              }}
+              style={{
+                flex: 1,
+                padding: 10,
+                borderRadius: 8,
+                backgroundColor: '#e0f2fe',
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: '#0284c7',
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ color: '#0284c7', fontWeight: '600', fontSize: 13 }}>
+                📝 Extend Selection
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                // Clear current selection
+                webViewRef.current?.injectJavaScript(`
+                  window.getSelection().removeAllRanges();
+                `);
+                setSelectedText(null);
+              }}
+              style={{
+                flex: 1,
+                padding: 10,
+                borderRadius: 8,
+                backgroundColor: '#fef3c7',
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: '#d97706',
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ color: '#d97706', fontWeight: '600', fontSize: 13 }}>
+                🔄 Reselect
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Action Buttons */}
           <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -487,7 +852,12 @@ const BookReaderScreen = () => {
               borderLeftColor: selectedColor,
             }}
           >
-            <Text style={{ color: '#6b7280', fontSize: 12, marginBottom: 4 }}>Selected Text:</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={{ color: '#6b7280', fontSize: 12 }}>Selected Text:</Text>
+              <Text style={{ color: '#6b7280', fontSize: 11 }}>
+                {selectedText.split(' ').length} word{selectedText.split(' ').length !== 1 ? 's' : ''} • {selectedText.length} chars
+              </Text>
+            </View>
             <Text style={{ color: '#1f2937', fontSize: 13, lineHeight: 18 }} numberOfLines={3}>
               "{selectedText}"
             </Text>
