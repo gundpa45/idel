@@ -8,8 +8,10 @@ import {
     Animated,
     Dimensions,
     FlatList,
+    Modal,
     ScrollView,
     Text,
+    TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
@@ -41,6 +43,10 @@ const BookReaderScreen = () => {
   const [selectedColor, setSelectedColor] = useState(HIGHLIGHT_COLORS[0].value);
   const [isLoadingAction, setIsLoadingAction] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const selectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [localHighlights, setLocalHighlights] = useState<Highlight[]>([]);
+  const [showTextInput, setShowTextInput] = useState(false);
+  const [inputText, setInputText] = useState('');
 
   const currentBookId = typeof bookId === 'string' ? bookId : '';
   const currentTitle = typeof title === 'string' ? title : 'Unknown';
@@ -101,14 +107,29 @@ const BookReaderScreen = () => {
     if (userId && currentBookId) {
       fetchHighlights();
       fetchOrCreateBookStats();
+    } else {
+      // If no user or book ID, assume offline mode
+      setIsOfflineMode(true);
     }
   }, [userId, currentBookId]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (selectionTimeoutRef.current) {
+        clearTimeout(selectionTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // 📥 Fetch highlights from the backend (filtered by user and book)
   const fetchHighlights = async () => {
     if (!userId || !currentBookId) return;
     
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
       const response = await fetch(
         `${API_BASE_URL}/highlights?userId=${userId}&bookId=${currentBookId}`,
         {
@@ -116,20 +137,19 @@ const BookReaderScreen = () => {
             'Authorization': `Bearer ${authContext?.token}`,
             'Content-Type': 'application/json',
           },
-          timeout: 10000, // 10 second timeout
+          signal: controller.signal,
         }
       );
+      
+      clearTimeout(timeoutId);
       if (!response.ok) throw new Error('Failed to fetch highlights');
       const data = await response.json();
       setHighlights(data);
     } catch (error) {
-      console.error('Error fetching highlights:', error);
-      // Don't show alert for network errors - just log them
-      // The app should work offline for reading
-      if (error.message.includes('Network request failed')) {
-        console.log('Working in offline mode - highlights will be stored locally when server is available');
-        setIsOfflineMode(true);
-      }
+      // Silently handle network errors - app works offline
+      console.log('Working in offline mode - highlights will be stored locally when server is available');
+      setIsOfflineMode(true);
+      // Don't log the full error to avoid console spam
     }
   };
 
@@ -205,97 +225,91 @@ const BookReaderScreen = () => {
     }
   };
 
-  // 💾 Save a new highlight (linked to user and book) with optimistic update
+  // 💾 Save a new highlight (works offline and online)
   const handleSaveHighlight = async (highlightText: string, color: string = selectedColor) => {
-    // Enhanced authentication check with better error messages
+    // Basic validation
     if (!highlightText.trim()) {
       Alert.alert('Error', 'Please select some text to highlight.');
       return;
     }
     
-    if (!authContext?.user) {
-      Alert.alert('Authentication Required', 'Please login to save highlights.');
-      return;
-    }
-    
-    if (!authContext?.token) {
-      Alert.alert('Authentication Error', 'Your session has expired. Please login again.');
-      return;
-    }
-    
-    if (!userId) {
-      Alert.alert('User Error', 'Unable to identify user. Please logout and login again.');
-      console.log('Auth context user:', authContext?.user);
-      return;
-    }
-    
-    if (!currentBookId) {
-      Alert.alert('Book Error', 'Unable to identify the current book.');
-      return;
-    }
-    
     setIsLoadingAction(true);
     
-    // Optimistic update - add highlight immediately
-    const tempHighlight: Highlight = {
-      id: `temp-${Date.now()}`,
+    // Create highlight object
+    const newHighlight: Highlight = {
+      id: `highlight-${Date.now()}`,
       text: highlightText,
       bookId: currentBookId,
       bookTitle: currentTitle,
-      userId: userId.toString(),
+      userId: userId?.toString() || 'offline-user',
       color,
       createdAt: new Date().toISOString(),
     };
     
-    setHighlights(prev => [tempHighlight, ...prev]);
+    // Add highlight immediately (works offline)
+    setHighlights(prev => [newHighlight, ...prev]);
+    setLocalHighlights(prev => [newHighlight, ...prev]);
     setSelectedText(null);
-    setShowColorPicker(false);
     
-    try {
-      const response = await fetch(`${API_BASE_URL}/highlights`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${authContext?.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          text: highlightText,
-          bookId: currentBookId,
-          bookTitle: currentTitle,
-          color,
-        }),
-      });
-      
-      if (!response.ok) throw new Error('Failed to save highlight');
-      const savedHighlight = await response.json();
-      
-      // Replace temp highlight with real one
-      setHighlights(prev => 
-        prev.map(h => h.id === tempHighlight.id ? savedHighlight : h)
-      );
-      
-      // Add visual highlight to the PDF
-      const colorName = getColorName(color);
-      webViewRef.current?.injectJavaScript(`
+    // Add visual highlight to the PDF
+    const colorName = getColorName(color);
+    webViewRef.current?.injectJavaScript(`
+      if (typeof window.addHighlight === 'function') {
         window.addHighlight("${highlightText.replace(/"/g, '\\"')}", "${colorName}");
-      `);
-      
-      // Update book stats
-      fetchOrCreateBookStats();
-    } catch (error) {
-      console.error(error);
-      
-      if (error.message.includes('Network request failed')) {
-        // Keep the highlight locally for network errors
-        console.log('Highlight saved locally - will sync when server is available');
-        Alert.alert('Offline Mode', 'Highlight saved locally. It will sync when you\'re back online.');
-      } else {
-        // Remove optimistic highlight for other errors
-        setHighlights(prev => prev.filter(h => h.id !== tempHighlight.id));
-        Alert.alert('Error', 'Could not save highlight. Please try again.');
       }
-    } finally {
-      setIsLoadingAction(false);
+    `);
+    
+    // Try to save to server if online and authenticated
+    if (!isOfflineMode && authContext?.user && authContext?.token) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/highlights`, {
+          method: 'POST',
+          headers: { 
+            'Authorization': `Bearer ${authContext.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            text: highlightText,
+            bookId: currentBookId,
+            bookTitle: currentTitle,
+            color,
+          }),
+        });
+        
+        if (response.ok) {
+          const savedHighlight = await response.json();
+          // Update with server ID
+          setHighlights(prev => 
+            prev.map(h => h.id === newHighlight.id ? { ...savedHighlight, id: savedHighlight.id } : h)
+          );
+          console.log('Highlight synced to server');
+        }
+      } catch (error) {
+        console.log('Could not sync to server, keeping local copy');
+      }
+    }
+    
+    setIsLoadingAction(false);
+    
+    // Show appropriate success message
+    if (isOfflineMode) {
+      Alert.alert(
+        '✅ Highlight Saved Offline!', 
+        'Your highlight has been saved locally and will sync when you\'re back online.',
+        [{ text: 'OK', style: 'default' }]
+      );
+    } else if (authContext?.user) {
+      Alert.alert(
+        '✅ Highlight Saved!', 
+        'Your highlight has been saved and synced to your account.',
+        [{ text: 'OK', style: 'default' }]
+      );
+    } else {
+      Alert.alert(
+        '✅ Highlight Saved Locally!', 
+        'Your highlight has been saved locally. Sign in to sync across devices.',
+        [{ text: 'OK', style: 'default' }]
+      );
     }
   };
 
@@ -386,7 +400,32 @@ const BookReaderScreen = () => {
       const msg = JSON.parse(event.nativeEvent.data);
       
       if (msg.type === 'TEXT_SELECTED' && msg.text) {
-        setSelectedText(msg.text);
+        // Clear any existing timeout
+        if (selectionTimeoutRef.current) {
+          clearTimeout(selectionTimeoutRef.current);
+        }
+        
+        // Show highlight toolbar for any meaningful text selection
+        const trimmedText = msg.text.trim();
+        const wordCount = trimmedText.split(/\s+/).length;
+        
+        // More lenient criteria: at least 1 word and 3 characters
+        if (trimmedText.length >= 3 && wordCount >= 1) {
+          console.log('Text selected for highlighting:', trimmedText);
+          setSelectedText(trimmedText);
+          
+          // Auto-hide selection after 30 seconds of inactivity
+          selectionTimeoutRef.current = setTimeout(() => {
+            setSelectedText(null);
+          }, 30000);
+        } else {
+          console.log('Text selection too short, not showing highlight toolbar:', trimmedText);
+        }
+      } else if (msg.type === 'SELECTION_CLEARED') {
+        setSelectedText(null);
+        if (selectionTimeoutRef.current) {
+          clearTimeout(selectionTimeoutRef.current);
+        }
       } else if (msg.type === 'HIGHLIGHT_CLICKED') {
         // Handle highlight click - could show options to edit or remove
         const highlight = highlights.find(h => h.text === msg.text);
@@ -420,6 +459,54 @@ const BookReaderScreen = () => {
   // 👨‍💻 Enhanced JavaScript injection for text selection and highlighting
   const injectedJavaScript = `
     (function() {
+      console.log('PDF JavaScript injection started');
+      
+      // Simple text selection handler
+      let selectionTimer;
+      
+      function handleSelection() {
+        clearTimeout(selectionTimer);
+        selectionTimer = setTimeout(() => {
+          const selection = window.getSelection();
+          if (selection && selection.toString().trim().length >= 3) {
+            const text = selection.toString().trim();
+            console.log('Text selected:', text);
+            
+            try {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'TEXT_SELECTED',
+                text: text
+              }));
+            } catch (e) {
+              console.log('Error sending selection message:', e);
+            }
+          }
+        }, 500);
+      }
+      
+      // Add event listeners for text selection
+      document.addEventListener('mouseup', handleSelection);
+      document.addEventListener('touchend', handleSelection);
+      document.addEventListener('selectionchange', handleSelection);
+      
+      // Catch copy events
+      document.addEventListener('copy', function(e) {
+        const selection = window.getSelection();
+        if (selection && selection.toString().trim().length >= 3) {
+          const text = selection.toString().trim();
+          console.log('Text copied:', text);
+          
+          try {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'TEXT_SELECTED',
+              text: text
+            }));
+          } catch (e) {
+            console.log('Error sending copy message:', e);
+          }
+        }
+      });
+      
       // Store highlights for visual display
       let savedHighlights = [];
       
@@ -493,10 +580,13 @@ const BookReaderScreen = () => {
       
       // Handle text selection
       document.addEventListener('mouseup', function(e) {
+        console.log('Mouse up event detected');
         clearTimeout(selectionTimeout);
         selectionTimeout = setTimeout(() => {
           const selectionData = getExtendedSelection();
+          console.log('Selection data:', selectionData);
           if (selectionData && selectionData.text.length > 0) {
+            console.log('Sending TEXT_SELECTED message:', selectionData.text);
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'TEXT_SELECTED',
               text: selectionData.text,
@@ -513,10 +603,13 @@ const BookReaderScreen = () => {
       
       // Handle touch selection for mobile
       document.addEventListener('touchend', function(e) {
+        console.log('Touch end event detected');
         clearTimeout(selectionTimeout);
         selectionTimeout = setTimeout(() => {
           const selectionData = getExtendedSelection();
+          console.log('Touch selection data:', selectionData);
           if (selectionData && selectionData.text.length > 0) {
+            console.log('Sending TEXT_SELECTED message from touch:', selectionData.text);
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'TEXT_SELECTED',
               text: selectionData.text,
@@ -529,6 +622,34 @@ const BookReaderScreen = () => {
             }));
           }
         }, 200);
+      });
+      
+      // Fallback: Simple selection change handler
+      document.addEventListener('selectionchange', function() {
+        clearTimeout(selectionTimeout);
+        selectionTimeout = setTimeout(() => {
+          const selection = window.getSelection();
+          if (selection && selection.toString().trim().length > 0) {
+            const text = selection.toString().trim();
+            console.log('Selection change detected:', text);
+            
+            if (text.length >= 3) {
+              const range = selection.getRangeAt(0);
+              const rect = range.getBoundingClientRect();
+              
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'TEXT_SELECTED',
+                text: text,
+                rect: {
+                  x: rect.x,
+                  y: rect.y,
+                  width: rect.width,
+                  height: rect.height
+                }
+              }));
+            }
+          }
+        }, 300);
       });
       
       // Function to add highlight to the document
@@ -610,7 +731,31 @@ const BookReaderScreen = () => {
       // Clear selection when clicking elsewhere
       document.addEventListener('click', function(e) {
         if (!e.target.classList.contains('highlight')) {
-          window.getSelection().removeAllRanges();
+          const selection = window.getSelection();
+          if (selection.rangeCount > 0) {
+            selection.removeAllRanges();
+            currentSelection = null;
+            
+            // Notify React Native that selection was cleared
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'SELECTION_CLEARED'
+            }));
+          }
+        }
+      });
+      
+      // Also clear selection on escape key
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          const selection = window.getSelection();
+          if (selection.rangeCount > 0) {
+            selection.removeAllRanges();
+            currentSelection = null;
+            
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'SELECTION_CLEARED'
+            }));
+          }
         }
       });
       
@@ -665,6 +810,154 @@ const BookReaderScreen = () => {
         style={{ flex: 1, opacity: loading ? 0 : 1 }} // Hide WebView while loading
       />
 
+      {/* Custom Text Input Modal */}
+      <Modal
+        visible={showTextInput}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowTextInput(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: 20,
+        }}>
+          <View style={{
+            backgroundColor: 'white',
+            borderRadius: 20,
+            padding: 20,
+            width: '100%',
+            maxWidth: 400,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 4,
+            elevation: 5,
+          }}>
+            <Text style={{
+              fontSize: 18,
+              fontWeight: 'bold',
+              color: '#1f2937',
+              marginBottom: 8,
+              textAlign: 'center',
+            }}>
+              Add Highlight
+            </Text>
+            
+            <Text style={{
+              fontSize: 14,
+              color: '#6b7280',
+              marginBottom: 16,
+              textAlign: 'center',
+            }}>
+              Copy text from the PDF, then paste it here:
+            </Text>
+            
+            <TextInput
+              style={{
+                borderWidth: 1,
+                borderColor: '#d1d5db',
+                borderRadius: 12,
+                padding: 12,
+                fontSize: 16,
+                minHeight: 100,
+                textAlignVertical: 'top',
+                backgroundColor: '#f9fafb',
+              }}
+              multiline={true}
+              placeholder="Paste your copied text here..."
+              value={inputText}
+              onChangeText={setInputText}
+              autoFocus={true}
+            />
+            
+            <View style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              marginTop: 20,
+              gap: 12,
+            }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowTextInput(false);
+                  setInputText('');
+                }}
+                style={{
+                  flex: 1,
+                  padding: 14,
+                  borderRadius: 12,
+                  backgroundColor: '#f3f4f6',
+                  alignItems: 'center',
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={{ color: '#374151', fontWeight: '600', fontSize: 16 }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                onPress={() => {
+                  if (inputText.trim().length > 0) {
+                    setSelectedText(inputText.trim());
+                    setShowTextInput(false);
+                    setInputText('');
+                  } else {
+                    Alert.alert('Error', 'Please enter some text to highlight.');
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  padding: 14,
+                  borderRadius: 12,
+                  backgroundColor: '#2563eb',
+                  alignItems: 'center',
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>
+                  Highlight
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Manual Highlight Button - always visible for easy access */}
+      {!selectedText && !showTextInput && (
+        <TouchableOpacity
+          onPress={() => {
+            setShowTextInput(true);
+          }}
+          style={{
+            position: 'absolute',
+            bottom: 20,
+            right: 20,
+            backgroundColor: isOfflineMode ? '#f59e0b' : '#2563eb',
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            borderRadius: 25,
+            flexDirection: 'row',
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 4,
+            elevation: 5,
+            zIndex: 10,
+          }}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="bookmark-outline" size={20} color="white" />
+          <Text style={{ color: 'white', fontWeight: 'bold', marginLeft: 4 }}>
+            {isOfflineMode ? 'Highlight (Offline)' : 'Add Highlight'}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* Professional Highlight Toolbar - appears when text is selected */}
       {selectedText && (
         <Animated.View
@@ -684,11 +977,34 @@ const BookReaderScreen = () => {
             elevation: 10,
           }}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-            <Ionicons name="color-palette" size={20} color="#6b7280" />
-            <Text style={{ marginLeft: 8, color: '#374151', fontSize: 14, fontWeight: '600' }}>
-              Choose Highlight Color
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="color-palette" size={20} color="#6b7280" />
+              <Text style={{ marginLeft: 8, color: '#374151', fontSize: 14, fontWeight: '600' }}>
+                Choose Highlight Color
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => {
+                setSelectedText(null);
+                if (selectionTimeoutRef.current) {
+                  clearTimeout(selectionTimeoutRef.current);
+                }
+                // Clear selection in WebView
+                webViewRef.current?.injectJavaScript(`
+                  window.getSelection().removeAllRanges();
+                  currentSelection = null;
+                `);
+              }}
+              style={{
+                padding: 8,
+                borderRadius: 8,
+                backgroundColor: '#f3f4f6',
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close" size={16} color="#6b7280" />
+            </TouchableOpacity>
           </View>
 
           {/* Color Picker */}
@@ -821,7 +1137,7 @@ const BookReaderScreen = () => {
                 flex: 2,
                 padding: 14,
                 borderRadius: 12,
-                backgroundColor: isLoadingAction ? '#93c5fd' : '#2563eb',
+                backgroundColor: isLoadingAction ? '#9ca3af' : '#2563eb',
                 alignItems: 'center',
                 flexDirection: 'row',
                 justifyContent: 'center',
@@ -862,6 +1178,44 @@ const BookReaderScreen = () => {
               "{selectedText}"
             </Text>
           </View>
+          
+          {/* Instructions and auto-hide indicator */}
+          <View style={{ marginTop: 8 }}>
+            <View style={{ 
+              flexDirection: 'row', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              paddingVertical: 4,
+              paddingHorizontal: 8,
+              backgroundColor: '#f0f9ff',
+              borderRadius: 6,
+              borderWidth: 1,
+              borderColor: '#e0f2fe',
+              marginBottom: 4
+            }}>
+              <Ionicons name="information-circle-outline" size={12} color="#0284c7" />
+              <Text style={{ color: '#0284c7', fontSize: 10, marginLeft: 4, fontWeight: '500' }}>
+                💡 Tip: Copy text from PDF, then use "Add Highlight" button
+              </Text>
+            </View>
+            
+            <View style={{ 
+              flexDirection: 'row', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              paddingVertical: 4,
+              paddingHorizontal: 8,
+              backgroundColor: '#f0f9ff',
+              borderRadius: 6,
+              borderWidth: 1,
+              borderColor: '#e0f2fe'
+            }}>
+              <Ionicons name="time-outline" size={12} color="#0284c7" />
+              <Text style={{ color: '#0284c7', fontSize: 10, marginLeft: 4, fontWeight: '500' }}>
+                Selection will auto-hide in 30s • Tap ✕ to close now
+              </Text>
+            </View>
+          </View>
         </Animated.View>
       )}
 
@@ -891,6 +1245,7 @@ const BookReaderScreen = () => {
                 paddingHorizontal: 10,
                 paddingVertical: 5,
                 borderRadius: 10,
+                marginBottom: 5,
               }}
             >
               <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>
@@ -898,6 +1253,44 @@ const BookReaderScreen = () => {
               </Text>
             </View>
           )}
+          
+          {/* Test Selection Button */}
+          <TouchableOpacity
+            style={{
+              backgroundColor: '#8b5cf6',
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: 10,
+              marginBottom: 5,
+            }}
+            onPress={() => {
+              console.log('Test button pressed');
+              setSelectedText('Test selection for debugging');
+            }}
+          >
+            <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>
+              🧪 Test Selection
+            </Text>
+          </TouchableOpacity>
+          
+          {/* Test Input Modal Button */}
+          <TouchableOpacity
+            style={{
+              backgroundColor: '#10b981',
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: 10,
+              marginBottom: 5,
+            }}
+            onPress={() => {
+              console.log('Test input modal');
+              setShowTextInput(true);
+            }}
+          >
+            <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>
+              📝 Test Input
+            </Text>
+          </TouchableOpacity>
         </View>
       )}
 

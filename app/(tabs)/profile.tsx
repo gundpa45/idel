@@ -1,5 +1,6 @@
+import { AuthContext } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
