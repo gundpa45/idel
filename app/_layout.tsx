@@ -10,6 +10,8 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="movie/[id]" />
+          <Stack.Screen name="reader/[id]" />
+          <Stack.Screen name="BookReader" />
         </Stack>
       </ParentalControlProvider>
     </AuthProvider>

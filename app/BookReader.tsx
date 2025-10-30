@@ -1,39 +1,39 @@
-import { AuthContext } from '@/context/AuthContext';
-import { useParentalControls } from '@/context/ParentalControlContext';
-import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useContext, useEffect, useRef, useState } from 'react';
+import { AuthContext } from "@/context/AuthContext";
+import { useParentalControls } from "@/context/ParentalControlContext";
+import { Ionicons } from "@expo/vector-icons";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Animated,
-    Dimensions,
-    FlatList,
-    Modal,
-    ScrollView,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
-} from 'react-native';
-import WebView from 'react-native-webview';
-import { API_BASE_URL } from '../config';
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Dimensions,
+  FlatList,
+  Modal,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import WebView from "react-native-webview";
+import { API_BASE_URL } from "../config";
 
 const HIGHLIGHT_COLORS = [
-  { name: 'Yellow', value: '#fef9c3', border: '#fde68a' },
-  { name: 'Green', value: '#d1fae5', border: '#a7f3d0' },
-  { name: 'Blue', value: '#dbeafe', border: '#bfdbfe' },
-  { name: 'Pink', value: '#fce7f3', border: '#fbcfe8' },
-  { name: 'Purple', value: '#e9d5ff', border: '#d8b4fe' },
-  { name: 'Orange', value: '#fed7aa', border: '#fdba74' },
+  { name: "Yellow", value: "#fef9c3", border: "#fde68a" },
+  { name: "Green", value: "#d1fae5", border: "#a7f3d0" },
+  { name: "Blue", value: "#dbeafe", border: "#bfdbfe" },
+  { name: "Pink", value: "#fce7f3", border: "#fbcfe8" },
+  { name: "Purple", value: "#e9d5ff", border: "#d8b4fe" },
+  { name: "Orange", value: "#fed7aa", border: "#fdba74" },
 ];
 
 const BookReaderScreen = () => {
   const { link, title, bookId } = useLocalSearchParams();
   const authContext = useContext(AuthContext);
-  
+
   const parentalControls = useParentalControls();
-  
+
   const router = useRouter();
   const webViewRef = useRef<WebView>(null);
   const sidebarAnim = useRef(new Animated.Value(0)).current;
@@ -50,60 +50,64 @@ const BookReaderScreen = () => {
   const selectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [localHighlights, setLocalHighlights] = useState<Highlight[]>([]);
   const [showTextInput, setShowTextInput] = useState(false);
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState("");
   const [contentBlocked, setContentBlocked] = useState(false);
   const [timeRestricted, setTimeRestricted] = useState(false);
   const [currentReadingSession, setCurrentReadingSession] = useState<any>(null);
+  const [isBookSaved, setIsBookSaved] = useState(false);
+  const [savingBook, setSavingBook] = useState(false);
 
-  const currentBookId = typeof bookId === 'string' ? bookId : '';
-  const currentTitle = typeof title === 'string' ? title : 'Unknown';
-  
+  const currentBookId = typeof bookId === "string" ? bookId : "";
+  const currentTitle = typeof title === "string" ? title : "Unknown";
+
   // More robust user ID extraction with debugging
-  const userId = authContext?.user?.id || authContext?.user?._id || authContext?.user?.userId;
-  
+  const userId =
+    authContext?.user?.id ||
+    authContext?.user?._id ||
+    authContext?.user?.userId;
+
   // Debug logging for authentication issues
   useEffect(() => {
-    console.log('BookReader Auth Debug Info:', {
+    console.log("BookReader Auth Debug Info:", {
       hasAuthContext: !!authContext,
       hasUser: !!authContext?.user,
       hasToken: !!authContext?.token,
       userId: userId,
       userObject: authContext?.user,
       bookId: currentBookId,
-      title: currentTitle
+      title: currentTitle,
     });
   }, [authContext, userId, currentBookId, currentTitle]);
 
-  const originalUrl = typeof link === 'string' ? link : '';
+  const originalUrl = typeof link === "string" ? link : "";
 
   // ✅ FIX 1: Robust URL handling to prevent downloads and display PDFs correctly.
   // This logic forces any compatible document link into Google's viewer.
-  const finalUrl =
-    originalUrl.includes('/preview') // Already a Google Drive preview link
-      ? originalUrl
-      : `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(originalUrl)}`;
+  const finalUrl = originalUrl.includes("/preview") // Already a Google Drive preview link
+    ? originalUrl
+    : `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(originalUrl)}`;
 
   // Helper function to get color name from hex value
   const getColorName = (hexColor: string): string => {
     const colorMap: { [key: string]: string } = {
-      '#fef9c3': 'yellow',
-      '#d1fae5': 'green', 
-      '#dbeafe': 'blue',
-      '#fce7f3': 'pink',
-      '#e9d5ff': 'purple',
-      '#fed7aa': 'orange'
+      "#fef9c3": "yellow",
+      "#d1fae5": "green",
+      "#dbeafe": "blue",
+      "#fce7f3": "pink",
+      "#e9d5ff": "purple",
+      "#fed7aa": "orange",
     };
-    return colorMap[hexColor] || 'yellow';
+    return colorMap[hexColor] || "yellow";
   };
 
   // Load existing highlights into the PDF
   const loadExistingHighlights = () => {
     if (highlights.length > 0 && webViewRef.current) {
-      const highlightData = highlights.map(h => ({
+      const highlightData = highlights.map((h) => ({
         text: h.text,
-        color: getColorName(h.color || '#fef9c3')
+        color: getColorName(h.color || "#fef9c3"),
       }));
-      
+
       webViewRef.current.injectJavaScript(`
         window.loadHighlights(${JSON.stringify(highlightData)});
       `);
@@ -114,7 +118,8 @@ const BookReaderScreen = () => {
     if (userId && currentBookId) {
       fetchHighlights();
       fetchOrCreateBookStats();
-      
+      checkIfBookSaved(); // Check if book is saved
+
       // Start reading session for parental tracking
       if (currentTitle && authContext?.user) {
         startReadingSession();
@@ -141,7 +146,10 @@ const BookReaderScreen = () => {
 
   // Check parental restrictions
   useEffect(() => {
-    if (parentalControls && typeof parentalControls.checkTimeRestrictions === 'function') {
+    if (
+      parentalControls &&
+      typeof parentalControls.checkTimeRestrictions === "function"
+    ) {
       // Check time restrictions
       const timeAllowed = parentalControls.checkTimeRestrictions();
       setTimeRestricted(!timeAllowed);
@@ -151,16 +159,17 @@ const BookReaderScreen = () => {
       const mockBookMetadata: BookMetadata = {
         id: currentBookId,
         title: currentTitle,
-        author: 'Unknown',
-        genre: ['Fiction'], // This would come from your book database
-        ageRating: '12+',
-        difficulty: 'intermediate',
-        topics: ['Adventure'],
-        language: 'English'
+        author: "Unknown",
+        genre: ["Fiction"], // This would come from your book database
+        ageRating: "12+",
+        difficulty: "intermediate",
+        topics: ["Adventure"],
+        language: "English",
       };
 
-      if (typeof parentalControls.checkContentRestrictions === 'function') {
-        const contentAllowed = parentalControls.checkContentRestrictions(mockBookMetadata);
+      if (typeof parentalControls.checkContentRestrictions === "function") {
+        const contentAllowed =
+          parentalControls.checkContentRestrictions(mockBookMetadata);
         setContentBlocked(!contentAllowed);
       }
     }
@@ -168,7 +177,10 @@ const BookReaderScreen = () => {
 
   // Start reading session
   const startReadingSession = async () => {
-    if (!authContext?.user || !authContext?.token) return;
+    if (!authContext?.user || !authContext?.token) {
+      console.log("No auth context, skipping reading session");
+      return;
+    }
 
     try {
       const sessionData = {
@@ -180,10 +192,10 @@ const BookReaderScreen = () => {
       };
 
       const response = await fetch(`${API_BASE_URL}/reading-sessions`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Authorization': `Bearer ${authContext.token}`,
-          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authContext.token}`,
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(sessionData),
       });
@@ -191,10 +203,15 @@ const BookReaderScreen = () => {
       if (response.ok) {
         const session = await response.json();
         setCurrentReadingSession(session);
-        console.log('Reading session started:', session);
+        console.log("Reading session started:", session);
+      } else {
+        console.log(
+          "Reading session API not available, continuing without tracking"
+        );
       }
     } catch (error) {
-      console.error('Error starting reading session:', error);
+      console.log("Reading session will work when server is available");
+      // Don't show error to user - this is optional functionality
     }
   };
 
@@ -204,58 +221,68 @@ const BookReaderScreen = () => {
 
     try {
       const endTime = new Date().toISOString();
-      const duration = Math.round((new Date(endTime).getTime() - new Date(currentReadingSession.startTime).getTime()) / 60000);
+      const duration = Math.round(
+        (new Date(endTime).getTime() -
+          new Date(currentReadingSession.startTime).getTime()) /
+          60000
+      );
 
       const updateData = {
         endTime,
         duration,
-        status: 'completed'
+        status: "completed",
       };
 
-      const response = await fetch(`${API_BASE_URL}/reading-sessions/${currentReadingSession._id}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${authContext.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updateData),
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/reading-sessions/${currentReadingSession._id}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${authContext.token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(updateData),
+        }
+      );
 
       if (response.ok) {
-        console.log('Reading session ended:', duration, 'minutes');
+        console.log("Reading session ended:", duration, "minutes");
         setCurrentReadingSession(null);
       }
     } catch (error) {
-      console.error('Error ending reading session:', error);
+      console.log("Reading session sync will happen when server is available");
+      setCurrentReadingSession(null);
     }
   };
 
   // 📥 Fetch highlights from the backend (filtered by user and book)
   const fetchHighlights = async () => {
     if (!userId || !currentBookId) return;
-    
+
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-      
+
       const response = await fetch(
         `${API_BASE_URL}/highlights?userId=${userId}&bookId=${currentBookId}`,
         {
           headers: {
-            'Authorization': `Bearer ${authContext?.token}`,
-            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authContext?.token}`,
+            "Content-Type": "application/json",
           },
           signal: controller.signal,
         }
       );
-      
+
       clearTimeout(timeoutId);
-      if (!response.ok) throw new Error('Failed to fetch highlights');
+      if (!response.ok) throw new Error("Failed to fetch highlights");
       const data = await response.json();
       setHighlights(data);
     } catch (error) {
       // Silently handle network errors - app works offline
-      console.log('Working in offline mode - highlights will be stored locally when server is available');
+      console.log(
+        "Working in offline mode - highlights will be stored locally when server is available"
+      );
       setIsOfflineMode(true);
       // Don't log the full error to avoid console spam
     }
@@ -263,29 +290,33 @@ const BookReaderScreen = () => {
 
   // 📊 Fetch or create book stats
   const fetchOrCreateBookStats = async () => {
-    if (!userId || !currentBookId) return;
+    if (!userId || !currentBookId || !authContext?.token) {
+      console.log("Skipping book stats - no auth or book info");
+      return;
+    }
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/book-stats?userId=${userId}&bookId=${currentBookId}`,
+        `${API_BASE_URL}/stats?userId=${userId}&bookId=${currentBookId}`,
         {
           headers: {
-            'Authorization': `Bearer ${authContext?.token}`,
-            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authContext.token}`,
+            "Content-Type": "application/json",
           },
         }
       );
-      
+
       if (response.ok) {
         const data = await response.json();
         setBookStats(data);
+        console.log("Book stats loaded successfully");
       } else {
         // Create new stats if not found
-        const createResponse = await fetch(`${API_BASE_URL}/book-stats`, {
-          method: 'POST',
+        const createResponse = await fetch(`${API_BASE_URL}/stats`, {
+          method: "POST",
           headers: {
-            'Authorization': `Bearer ${authContext?.token}`,
-            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authContext.token}`,
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             userId,
@@ -295,18 +326,16 @@ const BookReaderScreen = () => {
             highlightsCount: 0,
           }),
         });
-        
+
         if (createResponse.ok) {
           const newStats = await createResponse.json();
           setBookStats(newStats);
+          console.log("Book stats created successfully");
         }
       }
     } catch (error) {
-      console.error('Error with book stats:', error);
-      // Don't show alerts for network errors - work offline
-      if (error.message.includes('Network request failed')) {
-        console.log('Book stats will sync when server is available');
-      }
+      console.log("Book stats will sync when server is available");
+      // Don't log full error to avoid console spam
     }
   };
 
@@ -315,11 +344,11 @@ const BookReaderScreen = () => {
     if (!userId || !currentBookId || !authContext?.token) return;
 
     try {
-      await fetch(`${API_BASE_URL}/book-stats`, {
-        method: 'PUT',
+      await fetch(`${API_BASE_URL}/stats`, {
+        method: "PUT",
         headers: {
-          'Authorization': `Bearer ${authContext.token}`,
-          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authContext.token}`,
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           userId,
@@ -329,36 +358,100 @@ const BookReaderScreen = () => {
         }),
       });
     } catch (error) {
-      console.error('Error updating book stats:', error);
+      console.log("Book stats update will sync when server is available");
+    }
+  };
+
+  // 📚 Check if book is saved
+  const checkIfBookSaved = async () => {
+    if (!authContext?.token || !currentBookId) {
+      setIsBookSaved(false);
+      return;
+    }
+
+    try {
+      const saved = await checkBookSaved(authContext.token, currentBookId);
+      setIsBookSaved(saved);
+    } catch (error) {
+      console.log("Could not check book save status");
+      setIsBookSaved(false);
+    }
+  };
+
+  // 💾 Save/Unsave book
+  const toggleSaveBook = async () => {
+    if (!authContext?.token) {
+      Alert.alert(
+        "Login Required",
+        "Please login to save books and sync across devices",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Login", onPress: () => router.push("/auth/login") },
+        ]
+      );
+      return;
+    }
+
+    setSavingBook(true);
+
+    try {
+      if (isBookSaved) {
+        // Remove from saved
+        await removeSavedBook(authContext.token, currentBookId);
+        setIsBookSaved(false);
+        Alert.alert("Removed", "Book removed from your reading list");
+      } else {
+        // Add to saved - we need to get book info from somewhere
+        const bookData = {
+          bookId: currentBookId,
+          bookTitle: currentTitle,
+          bookAuthor: "Unknown Author", // We don't have this info in BookReader
+          bookYear: new Date().getFullYear().toString(),
+          bookStar: "4.0",
+          bookImage: "https://via.placeholder.com/300x400", // Placeholder image
+        };
+
+        await saveBook(authContext.token, bookData);
+        setIsBookSaved(true);
+        Alert.alert("Saved!", "Book added to your reading list");
+      }
+    } catch (error) {
+      console.error("Error saving book:", error);
+      Alert.alert("Error", error.message || "Failed to save book");
+    } finally {
+      setSavingBook(false);
     }
   };
 
   // 💾 Save a new highlight (works offline and online)
-  const handleSaveHighlight = async (highlightText: string, color: string = selectedColor) => {
+  const handleSaveHighlight = async (
+    highlightText: string,
+    color: string = selectedColor
+  ) => {
     // Basic validation
     if (!highlightText.trim()) {
-      Alert.alert('Error', 'Please select some text to highlight.');
+      Alert.alert("Error", "Please select some text to highlight.");
       return;
     }
-    
+
     setIsLoadingAction(true);
-    
+
     // Create highlight object
     const newHighlight: Highlight = {
       id: `highlight-${Date.now()}`,
       text: highlightText,
       bookId: currentBookId,
       bookTitle: currentTitle,
-      userId: userId?.toString() || 'offline-user',
+      userId: userId?.toString() || "offline-user",
       color,
       createdAt: new Date().toISOString(),
     };
-    
+
     // Add highlight immediately (works offline)
-    setHighlights(prev => [newHighlight, ...prev]);
-    setLocalHighlights(prev => [newHighlight, ...prev]);
+    setHighlights((prev) => [newHighlight, ...prev]);
+    setLocalHighlights((prev) => [newHighlight, ...prev]);
     setSelectedText(null);
-    
+
     // Add visual highlight to the PDF
     const colorName = getColorName(color);
     webViewRef.current?.injectJavaScript(`
@@ -366,57 +459,61 @@ const BookReaderScreen = () => {
         window.addHighlight("${highlightText.replace(/"/g, '\\"')}", "${colorName}");
       }
     `);
-    
+
     // Try to save to server if online and authenticated
     if (!isOfflineMode && authContext?.user && authContext?.token) {
       try {
         const response = await fetch(`${API_BASE_URL}/highlights`, {
-          method: 'POST',
-          headers: { 
-            'Authorization': `Bearer ${authContext.token}`,
-            'Content-Type': 'application/json',
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${authContext.token}`,
+            "Content-Type": "application/json",
           },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             text: highlightText,
             bookId: currentBookId,
             bookTitle: currentTitle,
             color,
           }),
         });
-        
+
         if (response.ok) {
           const savedHighlight = await response.json();
           // Update with server ID
-          setHighlights(prev => 
-            prev.map(h => h.id === newHighlight.id ? { ...savedHighlight, id: savedHighlight.id } : h)
+          setHighlights((prev) =>
+            prev.map((h) =>
+              h.id === newHighlight.id
+                ? { ...savedHighlight, id: savedHighlight.id }
+                : h
+            )
           );
-          console.log('Highlight synced to server');
+          console.log("Highlight synced to server");
         }
       } catch (error) {
-        console.log('Could not sync to server, keeping local copy');
+        console.log("Could not sync to server, keeping local copy");
       }
     }
-    
+
     setIsLoadingAction(false);
-    
+
     // Show appropriate success message
     if (isOfflineMode) {
       Alert.alert(
-        '✅ Highlight Saved Offline!', 
-        'Your highlight has been saved locally and will sync when you\'re back online.',
-        [{ text: 'OK', style: 'default' }]
+        "✅ Highlight Saved Offline!",
+        "Your highlight has been saved locally and will sync when you're back online.",
+        [{ text: "OK", style: "default" }]
       );
     } else if (authContext?.user) {
       Alert.alert(
-        '✅ Highlight Saved!', 
-        'Your highlight has been saved and synced to your account.',
-        [{ text: 'OK', style: 'default' }]
+        "✅ Highlight Saved!",
+        "Your highlight has been saved and synced to your account.",
+        [{ text: "OK", style: "default" }]
       );
     } else {
       Alert.alert(
-        '✅ Highlight Saved Locally!', 
-        'Your highlight has been saved locally. Sign in to sync across devices.',
-        [{ text: 'OK', style: 'default' }]
+        "✅ Highlight Saved Locally!",
+        "Your highlight has been saved locally. Sign in to sync across devices.",
+        [{ text: "OK", style: "default" }]
       );
     }
   };
@@ -425,40 +522,40 @@ const BookReaderScreen = () => {
   const handleRemoveHighlight = async (item: Highlight) => {
     // Optimistic update
     const previousHighlights = [...highlights];
-    setHighlights(prev => prev.filter(h => h.id !== item.id));
-    
+    setHighlights((prev) => prev.filter((h) => h.id !== item.id));
+
     try {
-      const response = await fetch(`${API_BASE_URL}/highlights/${item.id}`, { 
-        method: 'DELETE',
+      const response = await fetch(`${API_BASE_URL}/highlights/${item.id}`, {
+        method: "DELETE",
         headers: {
-          'Authorization': `Bearer ${authContext?.token}`,
+          Authorization: `Bearer ${authContext?.token}`,
         },
       });
-      
-      if (!response.ok) throw new Error('Failed to delete');
-      
+
+      if (!response.ok) throw new Error("Failed to delete");
+
       // Remove visual highlight from PDF
       webViewRef.current?.injectJavaScript(`
         window.removeHighlight("${item.text.replace(/"/g, '\\"')}");
       `);
-      
+
       // Update book stats
       fetchOrCreateBookStats();
     } catch (error) {
-      console.error('Error removing highlight:', error);
+      console.error("Error removing highlight:", error);
       // Rollback on error
       setHighlights(previousHighlights);
-      Alert.alert('Error', 'Could not remove highlight. Please try again.');
+      Alert.alert("Error", "Could not remove highlight. Please try again.");
     }
   };
 
   // 🎯 Jump to a highlight in the PDF
   const jumpToHighlight = (id: string) => {
-    const highlight = highlights.find(h => h.id === id);
+    const highlight = highlights.find((h) => h.id === id);
     if (highlight && webViewRef.current) {
       // Close sidebar first
       setSidebarOpen(false);
-      
+
       // Scroll to the highlight in the PDF
       webViewRef.current.injectJavaScript(`
         (function() {
@@ -506,55 +603,58 @@ const BookReaderScreen = () => {
   const onMessage = (event: any) => {
     try {
       const msg = JSON.parse(event.nativeEvent.data);
-      
-      if (msg.type === 'TEXT_SELECTED' && msg.text) {
+
+      if (msg.type === "TEXT_SELECTED" && msg.text) {
         // Clear any existing timeout
         if (selectionTimeoutRef.current) {
           clearTimeout(selectionTimeoutRef.current);
         }
-        
+
         // Show highlight toolbar for any meaningful text selection
         const trimmedText = msg.text.trim();
         const wordCount = trimmedText.split(/\s+/).length;
-        
+
         // More lenient criteria: at least 1 word and 3 characters
         if (trimmedText.length >= 3 && wordCount >= 1) {
-          console.log('Text selected for highlighting:', trimmedText);
+          console.log("Text selected for highlighting:", trimmedText);
           setSelectedText(trimmedText);
-          
+
           // Auto-hide selection after 30 seconds of inactivity
           selectionTimeoutRef.current = setTimeout(() => {
             setSelectedText(null);
           }, 30000);
         } else {
-          console.log('Text selection too short, not showing highlight toolbar:', trimmedText);
+          console.log(
+            "Text selection too short, not showing highlight toolbar:",
+            trimmedText
+          );
         }
-      } else if (msg.type === 'SELECTION_CLEARED') {
+      } else if (msg.type === "SELECTION_CLEARED") {
         setSelectedText(null);
         if (selectionTimeoutRef.current) {
           clearTimeout(selectionTimeoutRef.current);
         }
-      } else if (msg.type === 'HIGHLIGHT_CLICKED') {
+      } else if (msg.type === "HIGHLIGHT_CLICKED") {
         // Handle highlight click - could show options to edit or remove
-        const highlight = highlights.find(h => h.text === msg.text);
+        const highlight = highlights.find((h) => h.text === msg.text);
         if (highlight) {
           Alert.alert(
-            'Highlight Options',
-            `"${msg.text.substring(0, 50)}${msg.text.length > 50 ? '...' : ''}"`,
+            "Highlight Options",
+            `"${msg.text.substring(0, 50)}${msg.text.length > 50 ? "..." : ""}"`,
             [
-              { text: 'Cancel', style: 'cancel' },
-              { 
-                text: 'Remove', 
-                style: 'destructive',
-                onPress: () => handleRemoveHighlight(highlight)
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Remove",
+                style: "destructive",
+                onPress: () => handleRemoveHighlight(highlight),
               },
               {
-                text: 'Jump to Sidebar',
+                text: "Jump to Sidebar",
                 onPress: () => {
                   setSidebarOpen(true);
                   // Could scroll to this highlight in the sidebar
-                }
-              }
+                },
+              },
             ]
           );
         }
@@ -874,26 +974,51 @@ const BookReaderScreen = () => {
   // Show restriction screens if needed
   if (contentBlocked) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-        <Stack.Screen options={{ title: 'Content Restricted', headerShown: true }} />
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "#fff",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 20,
+        }}
+      >
+        <Stack.Screen
+          options={{ title: "Content Restricted", headerShown: true }}
+        />
         <Ionicons name="shield-outline" size={64} color="#ef4444" />
-        <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#1f2937', marginTop: 16, textAlign: 'center' }}>
+        <Text
+          style={{
+            fontSize: 24,
+            fontWeight: "bold",
+            color: "#1f2937",
+            marginTop: 16,
+            textAlign: "center",
+          }}
+        >
           Content Restricted
         </Text>
-        <Text style={{ fontSize: 16, color: '#6b7280', marginTop: 8, textAlign: 'center' }}>
+        <Text
+          style={{
+            fontSize: 16,
+            color: "#6b7280",
+            marginTop: 8,
+            textAlign: "center",
+          }}
+        >
           This book is not available due to parental control settings.
         </Text>
         <TouchableOpacity
           onPress={() => router.back()}
           style={{
-            backgroundColor: '#2563eb',
+            backgroundColor: "#2563eb",
             paddingHorizontal: 24,
             paddingVertical: 12,
             borderRadius: 12,
             marginTop: 24,
           }}
         >
-          <Text style={{ color: 'white', fontWeight: 'bold' }}>Go Back</Text>
+          <Text style={{ color: "white", fontWeight: "bold" }}>Go Back</Text>
         </TouchableOpacity>
       </View>
     );
@@ -901,330 +1026,901 @@ const BookReaderScreen = () => {
 
   if (timeRestricted) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-        <Stack.Screen options={{ title: 'Reading Time Restricted', headerShown: true }} />
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "#fff",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 20,
+        }}
+      >
+        <Stack.Screen
+          options={{ title: "Reading Time Restricted", headerShown: true }}
+        />
         <Ionicons name="time-outline" size={64} color="#f59e0b" />
-        <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#1f2937', marginTop: 16, textAlign: 'center' }}>
+        <Text
+          style={{
+            fontSize: 24,
+            fontWeight: "bold",
+            color: "#1f2937",
+            marginTop: 16,
+            textAlign: "center",
+          }}
+        >
           Reading Time Restricted
         </Text>
-        <Text style={{ fontSize: 16, color: '#6b7280', marginTop: 8, textAlign: 'center' }}>
-          Reading is not allowed during this time period. Please try again later.
+        <Text
+          style={{
+            fontSize: 16,
+            color: "#6b7280",
+            marginTop: 8,
+            textAlign: "center",
+          }}
+        >
+          Reading is not allowed during this time period. Please try again
+          later.
         </Text>
         <TouchableOpacity
           onPress={() => router.back()}
           style={{
-            backgroundColor: '#2563eb',
+            backgroundColor: "#2563eb",
             paddingHorizontal: 24,
             paddingVertical: 12,
             borderRadius: 12,
             marginTop: 24,
           }}
         >
-          <Text style={{ color: 'white', fontWeight: 'bold' }}>Go Back</Text>
+          <Text style={{ color: "white", fontWeight: "bold" }}>Go Back</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <Stack.Screen options={{ title: (title as string) || 'Book Reader', headerShown: true }} />
+    <View style={{ flex: 1, backgroundColor: "#0f0f23" }}>
+      <Stack.Screen
+        options={{
+          title: (title as string) || "Book Reader",
+          headerShown: false, // We'll create our own custom header
+        }}
+      />
 
+      {/* Custom Professional Header */}
+      <View
+        style={{
+          paddingTop: 50,
+          paddingHorizontal: 20,
+          paddingBottom: 15,
+          backgroundColor: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+          borderBottomLeftRadius: 25,
+          borderBottomRightRadius: 25,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.3,
+          shadowRadius: 8,
+          elevation: 10,
+        }}
+      >
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={{
+              backgroundColor: "rgba(0, 0, 0, 0.7)",
+              padding: 12,
+              borderRadius: 15,
+              backdropFilter: "blur(10px)",
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+
+          <View style={{ flex: 1, marginHorizontal: 15 }}>
+            <Text
+              style={{
+                color: "white",
+                fontSize: 18,
+                fontWeight: "bold",
+                textAlign: "center",
+              }}
+              numberOfLines={1}
+            >
+              {currentTitle}
+            </Text>
+            <Text
+              style={{
+                color: "rgba(255, 255, 255, 0.8)",
+                fontSize: 12,
+                textAlign: "center",
+                marginTop: 2,
+              }}
+            >
+              {highlights.length} highlights • Reading mode
+            </Text>
+          </View>
+
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            {/* Save Book Button */}
+            <TouchableOpacity
+              onPress={toggleSaveBook}
+              disabled={savingBook}
+              style={{
+                backgroundColor: isBookSaved
+                  ? "rgba(34, 197, 94, 0.8)"
+                  : "rgba(0, 0, 0, 0.7)",
+                padding: 12,
+                borderRadius: 15,
+                backdropFilter: "blur(10px)",
+              }}
+              activeOpacity={0.8}
+            >
+              {savingBook ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Ionicons
+                  name={isBookSaved ? "heart" : "heart-outline"}
+                  size={24}
+                  color={isBookSaved ? "#22c55e" : "white"}
+                />
+              )}
+            </TouchableOpacity>
+
+            {/* Highlights Sidebar Button */}
+            <TouchableOpacity
+              onPress={toggleSidebar}
+              style={{
+                backgroundColor: "rgba(0, 0, 0, 0.7)",
+                padding: 12,
+                borderRadius: 15,
+                backdropFilter: "blur(10px)",
+                position: "relative",
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="bookmark" size={24} color="white" />
+              {highlights.length > 0 && (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: -5,
+                    right: -5,
+                    backgroundColor: "#ff6b6b",
+                    borderRadius: 10,
+                    minWidth: 20,
+                    height: 20,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderWidth: 2,
+                    borderColor: "white",
+                  }}
+                >
+                  <Text
+                    style={{ color: "white", fontSize: 10, fontWeight: "bold" }}
+                  >
+                    {highlights.length > 99 ? "99+" : highlights.length}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Reading Progress Bar */}
+        <View
+          style={{
+            marginTop: 15,
+            backgroundColor: "rgba(255, 255, 255, 0.2)",
+            height: 6,
+            borderRadius: 3,
+            overflow: "hidden",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#4ade80",
+              height: "100%",
+              width: "35%", // This would be dynamic based on reading progress
+              borderRadius: 3,
+            }}
+          />
+        </View>
+        <Text
+          style={{
+            color: "rgba(255, 255, 255, 0.7)",
+            fontSize: 11,
+            textAlign: "center",
+            marginTop: 5,
+          }}
+        >
+          Reading Progress: 35%
+        </Text>
+      </View>
+
+      {/* Enhanced Loading Screen */}
       {loading && (
         <View
           style={{
-            position: 'absolute',
+            position: "absolute",
             top: 0,
             left: 0,
             right: 0,
             bottom: 0,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: 'rgba(255, 255, 255, 0.8)',
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(15, 15, 35, 0.95)",
             zIndex: 10,
           }}
         >
-          <ActivityIndicator size="large" color="#2563eb" />
-          <Text style={{ marginTop: 10, color: '#374151' }}>Loading Document...</Text>
+          <View
+            style={{
+              backgroundColor: "rgba(255, 255, 255, 0.1)",
+              padding: 40,
+              borderRadius: 25,
+              alignItems: "center",
+              backdropFilter: "blur(20px)",
+            }}
+          >
+            <View
+              style={{
+                width: 80,
+                height: 80,
+                borderRadius: 40,
+                backgroundColor: "rgba(102, 126, 234, 0.2)",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 20,
+              }}
+            >
+              <ActivityIndicator size="large" color="#667eea" />
+            </View>
+            <Text
+              style={{
+                color: "white",
+                fontSize: 18,
+                fontWeight: "600",
+                marginBottom: 8,
+              }}
+            >
+              Loading Your Book
+            </Text>
+            <Text
+              style={{
+                color: "rgba(255, 255, 255, 0.7)",
+                fontSize: 14,
+                textAlign: "center",
+              }}
+            >
+              Preparing the best reading experience...
+            </Text>
+          </View>
         </View>
       )}
 
-      <WebView
-        ref={webViewRef}
-        source={{ uri: finalUrl }}
-        onLoadEnd={() => {
-          setLoading(false);
-          // Load existing highlights after PDF loads
-          setTimeout(() => {
-            loadExistingHighlights();
-          }, 1000); // Wait a bit for the PDF to fully render
+      {/* Enhanced WebView Container */}
+      <View
+        style={{
+          flex: 1,
+          margin: 15,
+          borderRadius: 20,
+          overflow: "hidden",
+          backgroundColor: "white",
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.15,
+          shadowRadius: 20,
+          elevation: 15,
         }}
-        // ✅ FIX 2: Added error handling to prevent infinite loading state.
-        onError={() => {
-          setLoading(false);
-          Alert.alert('Error', 'Failed to load the document. Please check the link.');
-        }}
-        onHttpError={() => {
-          setLoading(false);
-          Alert.alert('Error', 'A network error occurred while trying to load the document.');
-        }}
-        injectedJavaScript={injectedJavaScript}
-        onMessage={onMessage}
-        style={{ flex: 1, opacity: loading ? 0 : 1 }} // Hide WebView while loading
-      />
+      >
+        <WebView
+          ref={webViewRef}
+          source={{ uri: finalUrl }}
+          onLoadEnd={() => {
+            setLoading(false);
+            // Load existing highlights after PDF loads
+            setTimeout(() => {
+              loadExistingHighlights();
+            }, 1000); // Wait a bit for the PDF to fully render
+          }}
+          // ✅ FIX 2: Added error handling to prevent infinite loading state.
+          onError={() => {
+            setLoading(false);
+            Alert.alert(
+              "Error",
+              "Failed to load the document. Please check the link."
+            );
+          }}
+          onHttpError={() => {
+            setLoading(false);
+            Alert.alert(
+              "Error",
+              "A network error occurred while trying to load the document."
+            );
+          }}
+          injectedJavaScript={injectedJavaScript}
+          onMessage={onMessage}
+          style={{
+            flex: 1,
+            opacity: loading ? 0 : 1,
+            borderRadius: 20,
+          }}
+        />
+      </View>
 
-      {/* Custom Text Input Modal */}
+      {/* Ultra-Modern Text Input Modal */}
       <Modal
         visible={showTextInput}
         transparent={true}
         animationType="slide"
         onRequestClose={() => setShowTextInput(false)}
       >
-        <View style={{
-          flex: 1,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          justifyContent: 'center',
-          alignItems: 'center',
-          padding: 20,
-        }}>
-          <View style={{
-            backgroundColor: 'white',
-            borderRadius: 20,
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(15, 15, 35, 0.9)",
+            justifyContent: "center",
+            alignItems: "center",
             padding: 20,
-            width: '100%',
-            maxWidth: 400,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 4,
-            elevation: 5,
-          }}>
-            <Text style={{
-              fontSize: 18,
-              fontWeight: 'bold',
-              color: '#1f2937',
-              marginBottom: 8,
-              textAlign: 'center',
-            }}>
-              Add Highlight
-            </Text>
-            
-            <Text style={{
-              fontSize: 14,
-              color: '#6b7280',
-              marginBottom: 16,
-              textAlign: 'center',
-            }}>
-              Copy text from the PDF, then paste it here:
-            </Text>
-            
-            <TextInput
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "white",
+              borderRadius: 30,
+              padding: 30,
+              width: "100%",
+              maxWidth: 400,
+              shadowColor: "#667eea",
+              shadowOffset: { width: 0, height: 20 },
+              shadowOpacity: 0.3,
+              shadowRadius: 30,
+              elevation: 20,
+            }}
+          >
+            {/* Modal Header */}
+            <View
               style={{
-                borderWidth: 1,
-                borderColor: '#d1d5db',
-                borderRadius: 12,
-                padding: 12,
-                fontSize: 16,
-                minHeight: 100,
-                textAlignVertical: 'top',
-                backgroundColor: '#f9fafb',
+                alignItems: "center",
+                marginBottom: 25,
               }}
-              multiline={true}
-              placeholder="Paste your copied text here..."
-              value={inputText}
-              onChangeText={setInputText}
-              autoFocus={true}
-            />
-            
-            <View style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              marginTop: 20,
-              gap: 12,
-            }}>
+            >
+              <View
+                style={{
+                  backgroundColor: "#667eea",
+                  padding: 15,
+                  borderRadius: 20,
+                  marginBottom: 15,
+                }}
+              >
+                <Ionicons name="create-outline" size={28} color="white" />
+              </View>
+              <Text
+                style={{
+                  fontSize: 22,
+                  fontWeight: "bold",
+                  color: "#1f2937",
+                  marginBottom: 8,
+                }}
+              >
+                Create Highlight
+              </Text>
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: "#6b7280",
+                  textAlign: "center",
+                  lineHeight: 20,
+                }}
+              >
+                Copy text from the PDF and paste it here to create a highlight
+              </Text>
+            </View>
+
+            {/* Enhanced Text Input */}
+            <View
+              style={{
+                backgroundColor: "#f8fafc",
+                borderRadius: 20,
+                borderWidth: 2,
+                borderColor: "#e2e8f0",
+                marginBottom: 25,
+              }}
+            >
+              <TextInput
+                style={{
+                  padding: 20,
+                  fontSize: 16,
+                  minHeight: 120,
+                  textAlignVertical: "top",
+                  color: "#1f2937",
+                  lineHeight: 24,
+                }}
+                multiline={true}
+                placeholder="Paste your copied text here..."
+                placeholderTextColor="#94a3b8"
+                value={inputText}
+                onChangeText={setInputText}
+                autoFocus={true}
+              />
+              {inputText.length > 0 && (
+                <View
+                  style={{
+                    position: "absolute",
+                    bottom: 10,
+                    right: 15,
+                    backgroundColor: "#667eea",
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: 10,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: "white",
+                      fontSize: 11,
+                      fontWeight: "600",
+                    }}
+                  >
+                    {inputText.split(" ").length} words
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Action Buttons */}
+            <View
+              style={{
+                flexDirection: "row",
+                gap: 15,
+              }}
+            >
               <TouchableOpacity
                 onPress={() => {
                   setShowTextInput(false);
-                  setInputText('');
+                  setInputText("");
                 }}
                 style={{
                   flex: 1,
-                  padding: 14,
-                  borderRadius: 12,
-                  backgroundColor: '#f3f4f6',
-                  alignItems: 'center',
+                  padding: 16,
+                  borderRadius: 20,
+                  backgroundColor: "#f1f5f9",
+                  alignItems: "center",
+                  borderWidth: 1,
+                  borderColor: "#e2e8f0",
                 }}
-                activeOpacity={0.7}
+                activeOpacity={0.8}
               >
-                <Text style={{ color: '#374151', fontWeight: '600', fontSize: 16 }}>
+                <Text
+                  style={{
+                    color: "#64748b",
+                    fontWeight: "600",
+                    fontSize: 16,
+                  }}
+                >
                   Cancel
                 </Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 onPress={() => {
                   if (inputText.trim().length > 0) {
                     setSelectedText(inputText.trim());
                     setShowTextInput(false);
-                    setInputText('');
+                    setInputText("");
                   } else {
-                    Alert.alert('Error', 'Please enter some text to highlight.');
+                    Alert.alert(
+                      "Error",
+                      "Please enter some text to highlight."
+                    );
                   }
                 }}
                 style={{
                   flex: 1,
-                  padding: 14,
-                  borderRadius: 12,
-                  backgroundColor: '#2563eb',
-                  alignItems: 'center',
+                  padding: 16,
+                  borderRadius: 20,
+                  backgroundColor: "#667eea",
+                  alignItems: "center",
+                  shadowColor: "#667eea",
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 8,
+                  elevation: 6,
                 }}
                 activeOpacity={0.8}
               >
-                <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>
-                  Highlight
-                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Ionicons name="bookmark" size={18} color="white" />
+                  <Text
+                    style={{
+                      color: "white",
+                      fontWeight: "bold",
+                      fontSize: 16,
+                      marginLeft: 8,
+                    }}
+                  >
+                    Create Highlight
+                  </Text>
+                </View>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* Manual Highlight Button - always visible for easy access */}
+      {/* Professional Floating Action Buttons */}
       {!selectedText && !showTextInput && (
-        <TouchableOpacity
-          onPress={() => {
-            setShowTextInput(true);
-          }}
+        <View
           style={{
-            position: 'absolute',
-            bottom: 20,
+            position: "absolute",
+            bottom: 30,
             right: 20,
-            backgroundColor: isOfflineMode ? '#f59e0b' : '#2563eb',
-            paddingHorizontal: 16,
-            paddingVertical: 12,
-            borderRadius: 25,
-            flexDirection: 'row',
-            alignItems: 'center',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 4,
-            elevation: 5,
+            alignItems: "center",
             zIndex: 10,
           }}
-          activeOpacity={0.8}
         >
-          <Ionicons name="bookmark-outline" size={20} color="white" />
-          <Text style={{ color: 'white', fontWeight: 'bold', marginLeft: 4 }}>
-            {isOfflineMode ? 'Highlight (Offline)' : 'Add Highlight'}
-          </Text>
-        </TouchableOpacity>
-      )}
+          {/* Main Highlight Button */}
+          <TouchableOpacity
+            onPress={() => setShowTextInput(true)}
+            style={{
+              backgroundColor: isOfflineMode ? "#f59e0b" : "#667eea",
+              width: 65,
+              height: 65,
+              borderRadius: 32.5,
+              alignItems: "center",
+              justifyContent: "center",
+              shadowColor: isOfflineMode ? "#f59e0b" : "#667eea",
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.4,
+              shadowRadius: 15,
+              elevation: 10,
+              marginBottom: 15,
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="add" size={28} color="white" />
+          </TouchableOpacity>
 
-      {/* Professional Highlight Toolbar - appears when text is selected */}
-      {selectedText && (
-        <Animated.View
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            backgroundColor: '#ffffff',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            padding: 20,
-            shadowColor: '#000',
-            shadowOpacity: 0.15,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: -3 },
-            elevation: 10,
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons name="color-palette" size={20} color="#6b7280" />
-              <Text style={{ marginLeft: 8, color: '#374151', fontSize: 14, fontWeight: '600' }}>
-                Choose Highlight Color
-              </Text>
-            </View>
+          {/* Secondary Action Buttons */}
+          <View style={{ alignItems: "center", gap: 12 }}>
+            {/* Quick Highlight Button */}
             <TouchableOpacity
               onPress={() => {
-                setSelectedText(null);
-                if (selectionTimeoutRef.current) {
-                  clearTimeout(selectionTimeoutRef.current);
+                // Quick highlight with default color
+                if (selectedText) {
+                  handleSaveHighlight(selectedText);
+                } else {
+                  setShowTextInput(true);
                 }
-                // Clear selection in WebView
-                webViewRef.current?.injectJavaScript(`
-                  window.getSelection().removeAllRanges();
-                  currentSelection = null;
-                `);
               }}
               style={{
-                padding: 8,
-                borderRadius: 8,
-                backgroundColor: '#f3f4f6',
+                backgroundColor: "rgba(255, 255, 255, 0.9)",
+                width: 50,
+                height: 50,
+                borderRadius: 25,
+                alignItems: "center",
+                justifyContent: "center",
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.15,
+                shadowRadius: 8,
+                elevation: 5,
               }}
-              activeOpacity={0.7}
+              activeOpacity={0.8}
             >
-              <Ionicons name="close" size={16} color="#6b7280" />
+              <Ionicons name="bookmark-outline" size={22} color="#667eea" />
+            </TouchableOpacity>
+
+            {/* Reading Settings Button */}
+            <TouchableOpacity
+              onPress={() => {
+                Alert.alert(
+                  "Reading Settings",
+                  "Adjust your reading preferences",
+                  [
+                    { text: "Font Size", onPress: () => {} },
+                    { text: "Night Mode", onPress: () => {} },
+                    { text: "Cancel", style: "cancel" },
+                  ]
+                );
+              }}
+              style={{
+                backgroundColor: "rgba(255, 255, 255, 0.9)",
+                width: 50,
+                height: 50,
+                borderRadius: 25,
+                alignItems: "center",
+                justifyContent: "center",
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.15,
+                shadowRadius: 8,
+                elevation: 5,
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="settings-outline" size={22} color="#667eea" />
             </TouchableOpacity>
           </View>
 
-          {/* Color Picker */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-            {HIGHLIGHT_COLORS.map((color) => (
+          {/* Status Indicator */}
+          <View
+            style={{
+              backgroundColor: isOfflineMode ? "#f59e0b" : "#10b981",
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 15,
+              marginTop: 15,
+            }}
+          >
+            <Text
+              style={{
+                color: "white",
+                fontSize: 11,
+                fontWeight: "600",
+              }}
+            >
+              {isOfflineMode ? "📱 Offline" : "☁️ Synced"}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* Ultra-Modern Highlight Toolbar */}
+      {selectedText && (
+        <>
+          {/* Dark Backdrop */}
+          <View
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0, 0, 0, 0.7)",
+              zIndex: 5,
+            }}
+          />
+
+          <Animated.View
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              backgroundColor: "#1a1a2e",
+              borderTopLeftRadius: 30,
+              borderTopRightRadius: 30,
+              padding: 25,
+              shadowColor: "#667eea",
+              shadowOpacity: 0.3,
+              shadowRadius: 20,
+              shadowOffset: { width: 0, height: -8 },
+              elevation: 15,
+              zIndex: 10,
+            }}
+          >
+            {/* Drag Handle */}
+            <View
+              style={{
+                width: 40,
+                height: 4,
+                backgroundColor: "rgba(255, 255, 255, 0.3)",
+                borderRadius: 2,
+                alignSelf: "center",
+                marginBottom: 20,
+              }}
+            />
+
+            {/* Header */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 20,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View
+                  style={{
+                    backgroundColor: "rgba(255, 255, 255, 0.2)",
+                    padding: 8,
+                    borderRadius: 12,
+                    marginRight: 12,
+                  }}
+                >
+                  <Ionicons name="color-palette" size={20} color="white" />
+                </View>
+                <View>
+                  <Text
+                    style={{
+                      color: "white",
+                      fontSize: 18,
+                      fontWeight: "bold",
+                    }}
+                  >
+                    Create Highlight
+                  </Text>
+                  <Text
+                    style={{
+                      color: "rgba(255, 255, 255, 0.8)",
+                      fontSize: 12,
+                    }}
+                  >
+                    Choose your highlight style
+                  </Text>
+                </View>
+              </View>
               <TouchableOpacity
-                key={color.value}
-                onPress={() => setSelectedColor(color.value)}
+                onPress={() => {
+                  setSelectedText(null);
+                  if (selectionTimeoutRef.current) {
+                    clearTimeout(selectionTimeoutRef.current);
+                  }
+                  webViewRef.current?.injectJavaScript(`
+                  window.getSelection().removeAllRanges();
+                  currentSelection = null;
+                `);
+                }}
                 style={{
-                  width: 50,
-                  height: 50,
-                  borderRadius: 25,
-                  backgroundColor: color.value,
-                  marginRight: 12,
-                  borderWidth: selectedColor === color.value ? 3 : 2,
-                  borderColor: selectedColor === color.value ? '#2563eb' : color.border,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  shadowColor: selectedColor === color.value ? '#2563eb' : 'transparent',
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.3,
-                  shadowRadius: 4,
-                  elevation: selectedColor === color.value ? 4 : 0,
+                  backgroundColor: "rgba(255, 255, 255, 0.2)",
+                  padding: 10,
+                  borderRadius: 15,
                 }}
                 activeOpacity={0.7}
               >
-                {selectedColor === color.value && (
-                  <Ionicons name="checkmark" size={24} color="#2563eb" />
-                )}
+                <Ionicons name="close" size={20} color="white" />
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-          
-          {/* Color Preview */}
-          <View style={{ marginBottom: 16 }}>
-            <Text style={{ color: '#6b7280', fontSize: 12, marginBottom: 6 }}>Preview:</Text>
+            </View>
             <View
               style={{
-                backgroundColor: selectedColor,
-                padding: 8,
-                borderRadius: 6,
-                borderWidth: 1,
-                borderColor: HIGHLIGHT_COLORS.find(c => c.value === selectedColor)?.border || '#e5e7eb',
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
               }}
             >
-              <Text style={{ color: '#1f2937', fontSize: 13, fontWeight: '500' }}>
-                This is how your highlight will look
-              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Ionicons name="color-palette" size={20} color="#6b7280" />
+                <Text
+                  style={{
+                    marginLeft: 8,
+                    color: "#374151",
+                    fontSize: 14,
+                    fontWeight: "600",
+                  }}
+                >
+                  Choose Highlight Color
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setSelectedText(null);
+                  if (selectionTimeoutRef.current) {
+                    clearTimeout(selectionTimeoutRef.current);
+                  }
+                  // Clear selection in WebView
+                  webViewRef.current?.injectJavaScript(`
+                  window.getSelection().removeAllRanges();
+                  currentSelection = null;
+                `);
+                }}
+                style={{
+                  padding: 8,
+                  borderRadius: 8,
+                  backgroundColor: "#f3f4f6",
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={16} color="#6b7280" />
+              </TouchableOpacity>
             </View>
-          </View>
 
-          {/* Selection Tools */}
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
-            <TouchableOpacity
-              onPress={() => {
-                // Extend selection to include more words
-                webViewRef.current?.injectJavaScript(`
+            {/* Enhanced Color Picker */}
+            <View style={{ marginBottom: 20 }}>
+              <Text
+                style={{
+                  color: "rgba(255, 255, 255, 0.9)",
+                  fontSize: 14,
+                  fontWeight: "600",
+                  marginBottom: 12,
+                }}
+              >
+                Highlight Colors
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {HIGHLIGHT_COLORS.map((color, index) => (
+                  <TouchableOpacity
+                    key={color.value}
+                    onPress={() => setSelectedColor(color.value)}
+                    style={{
+                      width: 60,
+                      height: 60,
+                      borderRadius: 30,
+                      backgroundColor: color.value,
+                      marginRight: 15,
+                      borderWidth: selectedColor === color.value ? 4 : 2,
+                      borderColor:
+                        selectedColor === color.value
+                          ? "white"
+                          : "rgba(0, 0, 0, 0.8)",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      shadowColor: color.value,
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: selectedColor === color.value ? 0.6 : 0.3,
+                      shadowRadius: 8,
+                      elevation: selectedColor === color.value ? 8 : 4,
+                      transform: [
+                        { scale: selectedColor === color.value ? 1.1 : 1 },
+                      ],
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    {selectedColor === color.value && (
+                      <View
+                        style={{
+                          backgroundColor: "rgba(0, 0, 0, 0.7)",
+                          borderRadius: 15,
+                          padding: 4,
+                        }}
+                      >
+                        <Ionicons name="checkmark" size={20} color="white" />
+                      </View>
+                    )}
+                    <Text
+                      style={{
+                        position: "absolute",
+                        bottom: -25,
+                        color: "rgba(255, 255, 255, 0.8)",
+                        fontSize: 10,
+                        fontWeight: "500",
+                        textAlign: "center",
+                      }}
+                    >
+                      {color.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* Color Preview */}
+            <View style={{ marginBottom: 16 }}>
+              <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 6 }}>
+                Preview:
+              </Text>
+              <View
+                style={{
+                  backgroundColor: selectedColor,
+                  padding: 8,
+                  borderRadius: 6,
+                  borderWidth: 1,
+                  borderColor:
+                    HIGHLIGHT_COLORS.find((c) => c.value === selectedColor)
+                      ?.border || "#e5e7eb",
+                }}
+              >
+                <Text
+                  style={{ color: "#1f2937", fontSize: 13, fontWeight: "500" }}
+                >
+                  This is how your highlight will look
+                </Text>
+              </View>
+            </View>
+
+            {/* Selection Tools */}
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  // Extend selection to include more words
+                  webViewRef.current?.injectJavaScript(`
                   const selection = window.getSelection();
                   if (selection.rangeCount > 0) {
                     const range = selection.getRangeAt(0);
@@ -1235,222 +1931,338 @@ const BookReaderScreen = () => {
                     }));
                   }
                 `);
-              }}
-              style={{
-                flex: 1,
-                padding: 10,
-                borderRadius: 8,
-                backgroundColor: '#e0f2fe',
-                alignItems: 'center',
-                borderWidth: 1,
-                borderColor: '#0284c7',
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={{ color: '#0284c7', fontWeight: '600', fontSize: 13 }}>
-                📝 Extend Selection
-              </Text>
-            </TouchableOpacity>
+                }}
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  borderRadius: 8,
+                  backgroundColor: "#e0f2fe",
+                  alignItems: "center",
+                  borderWidth: 1,
+                  borderColor: "#0284c7",
+                }}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={{ color: "#0284c7", fontWeight: "600", fontSize: 13 }}
+                >
+                  📝 Extend Selection
+                </Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => {
-                // Clear current selection
-                webViewRef.current?.injectJavaScript(`
+              <TouchableOpacity
+                onPress={() => {
+                  // Clear current selection
+                  webViewRef.current?.injectJavaScript(`
                   window.getSelection().removeAllRanges();
                 `);
-                setSelectedText(null);
-              }}
+                  setSelectedText(null);
+                }}
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  borderRadius: 8,
+                  backgroundColor: "#fef3c7",
+                  alignItems: "center",
+                  borderWidth: 1,
+                  borderColor: "#d97706",
+                }}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={{ color: "#d97706", fontWeight: "600", fontSize: 13 }}
+                >
+                  🔄 Reselect
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Modern Action Buttons */}
+            <View style={{ flexDirection: "row", gap: 15, marginTop: 10 }}>
+              <TouchableOpacity
+                onPress={() => setSelectedText(null)}
+                style={{
+                  flex: 1,
+                  padding: 16,
+                  borderRadius: 20,
+                  backgroundColor: "rgba(0, 0, 0, 0.7)",
+                  alignItems: "center",
+                  borderWidth: 1,
+                  borderColor: "rgba(255, 255, 255, 0.5)",
+                }}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={{
+                    color: "white",
+                    fontWeight: "600",
+                    fontSize: 16,
+                  }}
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => handleSaveHighlight(selectedText, selectedColor)}
+                disabled={isLoadingAction}
+                style={{
+                  flex: 2,
+                  padding: 16,
+                  borderRadius: 20,
+                  backgroundColor: isLoadingAction
+                    ? "rgba(102, 126, 234, 0.7)"
+                    : "#667eea",
+                  alignItems: "center",
+                  flexDirection: "row",
+                  justifyContent: "center",
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 8,
+                  elevation: 6,
+                }}
+                activeOpacity={0.8}
+              >
+                {isLoadingAction ? (
+                  <ActivityIndicator color="white" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="bookmark" size={20} color="white" />
+                    <Text
+                      style={{
+                        color: "white",
+                        fontWeight: "bold",
+                        fontSize: 16,
+                        marginLeft: 10,
+                      }}
+                    >
+                      Save Highlight
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Enhanced Selected Text Preview */}
+            <View
               style={{
-                flex: 1,
-                padding: 10,
-                borderRadius: 8,
-                backgroundColor: '#fef3c7',
-                alignItems: 'center',
+                marginTop: 20,
+                backgroundColor: "rgba(255, 255, 255, 0.1)",
+                borderRadius: 20,
+                padding: 20,
                 borderWidth: 1,
-                borderColor: '#d97706',
+                borderColor: "rgba(255, 255, 255, 0.2)",
+                backdropFilter: "blur(10px)",
               }}
-              activeOpacity={0.7}
             >
-              <Text style={{ color: '#d97706', fontWeight: '600', fontSize: 13 }}>
-                🔄 Reselect
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Action Buttons */}
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <TouchableOpacity
-              onPress={() => setSelectedText(null)}
-              style={{
-                flex: 1,
-                padding: 14,
-                borderRadius: 12,
-                backgroundColor: '#f3f4f6',
-                alignItems: 'center',
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={{ color: '#374151', fontWeight: '600', fontSize: 15 }}>Cancel</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => handleSaveHighlight(selectedText, selectedColor)}
-              disabled={isLoadingAction}
-              style={{
-                flex: 2,
-                padding: 14,
-                borderRadius: 12,
-                backgroundColor: isLoadingAction ? '#9ca3af' : '#2563eb',
-                alignItems: 'center',
-                flexDirection: 'row',
-                justifyContent: 'center',
-              }}
-              activeOpacity={0.8}
-            >
-              {isLoadingAction ? (
-                <ActivityIndicator color="#ffffff" size="small" />
-              ) : (
-                <>
-                  <Ionicons name="bookmark" size={18} color="#ffffff" />
-                  <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 15, marginLeft: 8 }}>
-                    Save Highlight
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 12,
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Ionicons
+                    name="document-text-outline"
+                    size={16}
+                    color="rgba(255, 255, 255, 0.8)"
+                  />
+                  <Text
+                    style={{
+                      color: "rgba(255, 255, 255, 0.8)",
+                      fontSize: 12,
+                      fontWeight: "600",
+                      marginLeft: 6,
+                    }}
+                  >
+                    Selected Text
                   </Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
+                </View>
+                <View
+                  style={{
+                    backgroundColor: "rgba(255, 255, 255, 0.15)",
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: 10,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: "rgba(255, 255, 255, 0.9)",
+                      fontSize: 10,
+                      fontWeight: "500",
+                    }}
+                  >
+                    {selectedText.split(" ").length} words •{" "}
+                    {selectedText.length} chars
+                  </Text>
+                </View>
+              </View>
 
-          {/* Selected Text Preview */}
-          <View
-            style={{
-              marginTop: 12,
-              padding: 12,
-              backgroundColor: '#f9fafb',
-              borderRadius: 8,
-              borderLeftWidth: 3,
-              borderLeftColor: selectedColor,
-            }}
-          >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <Text style={{ color: '#6b7280', fontSize: 12 }}>Selected Text:</Text>
-              <Text style={{ color: '#6b7280', fontSize: 11 }}>
-                {selectedText.split(' ').length} word{selectedText.split(' ').length !== 1 ? 's' : ''} • {selectedText.length} chars
-              </Text>
+              <View
+                style={{
+                  backgroundColor: selectedColor,
+                  borderRadius: 12,
+                  padding: 15,
+                  borderWidth: 1,
+                  borderColor:
+                    HIGHLIGHT_COLORS.find((c) => c.value === selectedColor)
+                      ?.border || "#e5e7eb",
+                }}
+              >
+                <Text
+                  style={{
+                    color: "#1f2937",
+                    fontSize: 14,
+                    lineHeight: 20,
+                    fontWeight: "500",
+                  }}
+                  numberOfLines={4}
+                >
+                  "{selectedText}"
+                </Text>
+              </View>
             </View>
-            <Text style={{ color: '#1f2937', fontSize: 13, lineHeight: 18 }} numberOfLines={3}>
-              "{selectedText}"
-            </Text>
-          </View>
-          
-          {/* Instructions and auto-hide indicator */}
-          <View style={{ marginTop: 8 }}>
-            <View style={{ 
-              flexDirection: 'row', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              paddingVertical: 4,
-              paddingHorizontal: 8,
-              backgroundColor: '#f0f9ff',
-              borderRadius: 6,
-              borderWidth: 1,
-              borderColor: '#e0f2fe',
-              marginBottom: 4
-            }}>
-              <Ionicons name="information-circle-outline" size={12} color="#0284c7" />
-              <Text style={{ color: '#0284c7', fontSize: 10, marginLeft: 4, fontWeight: '500' }}>
-                💡 Tip: Copy text from PDF, then use "Add Highlight" button
-              </Text>
+
+            {/* Instructions and auto-hide indicator */}
+            <View style={{ marginTop: 8 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingVertical: 4,
+                  paddingHorizontal: 8,
+                  backgroundColor: "#f0f9ff",
+                  borderRadius: 6,
+                  borderWidth: 1,
+                  borderColor: "#e0f2fe",
+                  marginBottom: 4,
+                }}
+              >
+                <Ionicons
+                  name="information-circle-outline"
+                  size={12}
+                  color="#0284c7"
+                />
+                <Text
+                  style={{
+                    color: "#0284c7",
+                    fontSize: 10,
+                    marginLeft: 4,
+                    fontWeight: "500",
+                  }}
+                >
+                  💡 Tip: Copy text from PDF, then use "Add Highlight" button
+                </Text>
+              </View>
+
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingVertical: 4,
+                  paddingHorizontal: 8,
+                  backgroundColor: "#f0f9ff",
+                  borderRadius: 6,
+                  borderWidth: 1,
+                  borderColor: "#e0f2fe",
+                }}
+              >
+                <Ionicons name="time-outline" size={12} color="#0284c7" />
+                <Text
+                  style={{
+                    color: "#0284c7",
+                    fontSize: 10,
+                    marginLeft: 4,
+                    fontWeight: "500",
+                  }}
+                >
+                  Selection will auto-hide in 30s • Tap ✕ to close now
+                </Text>
+              </View>
             </View>
-            
-            <View style={{ 
-              flexDirection: 'row', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              paddingVertical: 4,
-              paddingHorizontal: 8,
-              backgroundColor: '#f0f9ff',
-              borderRadius: 6,
-              borderWidth: 1,
-              borderColor: '#e0f2fe'
-            }}>
-              <Ionicons name="time-outline" size={12} color="#0284c7" />
-              <Text style={{ color: '#0284c7', fontSize: 10, marginLeft: 4, fontWeight: '500' }}>
-                Selection will auto-hide in 30s • Tap ✕ to close now
-              </Text>
-            </View>
-          </View>
-        </Animated.View>
+          </Animated.View>
+        </>
       )}
 
       {/* Status Indicators */}
       {__DEV__ && (
-        <View style={{ position: 'absolute', top: 60, left: 15, zIndex: 5 }}>
+        <View style={{ position: "absolute", top: 60, left: 15, zIndex: 5 }}>
           {/* Auth Status */}
           <View
             style={{
-              backgroundColor: authContext?.user ? '#10b981' : '#ef4444',
+              backgroundColor: authContext?.user ? "#10b981" : "#ef4444",
               paddingHorizontal: 10,
               paddingVertical: 5,
               borderRadius: 10,
               marginBottom: 5,
             }}
           >
-            <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>
-              {authContext?.user ? `✓ ${authContext.user.name || 'User'}` : '✗ Not logged in'}
+            <Text style={{ color: "white", fontSize: 12, fontWeight: "bold" }}>
+              {authContext?.user
+                ? `✓ ${authContext.user.name || "User"}`
+                : "✗ Not logged in"}
             </Text>
           </View>
-          
+
           {/* Network Status */}
           {isOfflineMode && (
             <View
               style={{
-                backgroundColor: '#f59e0b',
+                backgroundColor: "#f59e0b",
                 paddingHorizontal: 10,
                 paddingVertical: 5,
                 borderRadius: 10,
                 marginBottom: 5,
               }}
             >
-              <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>
+              <Text
+                style={{ color: "white", fontSize: 12, fontWeight: "bold" }}
+              >
                 📱 Offline Mode
               </Text>
             </View>
           )}
-          
+
           {/* Test Selection Button */}
           <TouchableOpacity
             style={{
-              backgroundColor: '#8b5cf6',
+              backgroundColor: "#8b5cf6",
               paddingHorizontal: 10,
               paddingVertical: 5,
               borderRadius: 10,
               marginBottom: 5,
             }}
             onPress={() => {
-              console.log('Test button pressed');
-              setSelectedText('Test selection for debugging');
+              console.log("Test button pressed");
+              setSelectedText("Test selection for debugging");
             }}
           >
-            <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>
+            <Text style={{ color: "white", fontSize: 12, fontWeight: "bold" }}>
               🧪 Test Selection
             </Text>
           </TouchableOpacity>
-          
+
           {/* Test Input Modal Button */}
           <TouchableOpacity
             style={{
-              backgroundColor: '#10b981',
+              backgroundColor: "#10b981",
               paddingHorizontal: 10,
               paddingVertical: 5,
               borderRadius: 10,
               marginBottom: 5,
             }}
             onPress={() => {
-              console.log('Test input modal');
+              console.log("Test input modal");
               setShowTextInput(true);
             }}
           >
-            <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>
+            <Text style={{ color: "white", fontSize: 12, fontWeight: "bold" }}>
               📝 Test Input
             </Text>
           </TouchableOpacity>
@@ -1461,49 +2273,103 @@ const BookReaderScreen = () => {
       <TouchableOpacity
         onPress={toggleSidebar}
         style={{
-          position: 'absolute',
+          position: "absolute",
           top: 10,
           right: 15,
-          backgroundColor: '#111827',
+          backgroundColor: "#111827",
           paddingHorizontal: 15,
           paddingVertical: 10,
           borderRadius: 20,
           zIndex: 5,
         }}
       >
-        <Text style={{ color: 'white', fontWeight: 'bold' }}>
-          {isSidebarOpen ? 'Close' : 'Highlights'}
+        <Text style={{ color: "white", fontWeight: "bold" }}>
+          {isSidebarOpen ? "Close" : "Highlights"}
         </Text>
       </TouchableOpacity>
 
-      {/* Sidebar for displaying highlights */}
+      {/* Ultra-Modern Highlights Sidebar */}
       <Animated.View
         style={{
-          position: 'absolute',
+          position: "absolute",
           top: 0,
           bottom: 0,
           right: 0,
-          width: Dimensions.get('window').width * 0.8, // Responsive width
-          backgroundColor: '#f9fafb',
-          padding: 16,
-          borderLeftWidth: 1,
-          borderLeftColor: '#e5e7eb',
-          elevation: 8,
+          width: Dimensions.get("window").width * 0.85,
+          backgroundColor: "#1e293b",
+          borderTopLeftRadius: 25,
+          borderBottomLeftRadius: 25,
+          shadowColor: "#000",
+          shadowOffset: { width: -8, height: 0 },
+          shadowOpacity: 0.3,
+          shadowRadius: 20,
+          elevation: 20,
           transform: [
             {
               translateX: sidebarAnim.interpolate({
                 inputRange: [0, 1],
-                outputRange: [Dimensions.get('window').width, 0], // Animate from off-screen
+                outputRange: [Dimensions.get("window").width, 0],
               }),
             },
           ],
         }}
       >
+        {/* Sidebar Header */}
+        <View
+          style={{
+            paddingTop: 60,
+            paddingHorizontal: 25,
+            paddingBottom: 20,
+            borderBottomWidth: 1,
+            borderBottomColor: "rgba(255, 255, 255, 0.1)",
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <View>
+              <Text
+                style={{
+                  fontSize: 24,
+                  fontWeight: "bold",
+                  color: "white",
+                  marginBottom: 4,
+                }}
+              >
+                My Highlights
+              </Text>
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: "rgba(255, 255, 255, 0.7)",
+                }}
+              >
+                {highlights.length} highlight
+                {highlights.length !== 1 ? "s" : ""} in this book
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={toggleSidebar}
+              style={{
+                backgroundColor: "rgba(255, 255, 255, 0.1)",
+                padding: 12,
+                borderRadius: 15,
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="close" size={24} color="white" />
+            </TouchableOpacity>
+          </View>
+        </View>
         <Text
           style={{
             fontSize: 20,
-            fontWeight: 'bold',
-            color: '#111827',
+            fontWeight: "bold",
+            color: "#111827",
             marginBottom: 8,
             marginTop: 40, // Avoid overlapping with header/status bar
           }}
@@ -1513,63 +2379,210 @@ const BookReaderScreen = () => {
         <Text
           style={{
             fontSize: 12,
-            color: '#6b7280',
+            color: "#6b7280",
             marginBottom: 12,
           }}
         >
-          {highlights.length} highlight{highlights.length !== 1 ? 's' : ''} in {currentTitle}
+          {highlights.length} highlight{highlights.length !== 1 ? "s" : ""} in{" "}
+          {currentTitle}
         </Text>
 
-        {highlights.length === 0 ? (
-          <Text style={{ color: '#6b7280', textAlign: 'center', marginTop: 20 }}>
-            You haven't made any highlights yet.
-          </Text>
-        ) : (
-          <FlatList
-            data={highlights}
-            // ✅ FIX 3: More stable key extractor
-            keyExtractor={(item) => item.id?.toString() || `${item.text}-${Math.random()}`}
-            renderItem={({ item }) => {
-              const colorConfig = HIGHLIGHT_COLORS.find(c => c.value === item.color) || HIGHLIGHT_COLORS[0];
-              return (
+        {/* Highlights Content */}
+        <View style={{ flex: 1, paddingHorizontal: 25, paddingTop: 20 }}>
+          {highlights.length === 0 ? (
+            <View
+              style={{
+                flex: 1,
+                alignItems: "center",
+                justifyContent: "center",
+                paddingHorizontal: 20,
+              }}
+            >
               <View
                 style={{
-                  backgroundColor: item.color || '#fef9c3',
-                  borderRadius: 12,
-                  padding: 12,
-                  marginBottom: 10,
-                  borderWidth: 1,
-                  borderColor: colorConfig.border,
+                  backgroundColor: "rgba(255, 255, 255, 0.1)",
+                  padding: 30,
+                  borderRadius: 25,
+                  alignItems: "center",
+                  marginBottom: 20,
                 }}
               >
-                <TouchableOpacity onPress={() => jumpToHighlight(item.id)} activeOpacity={0.7}>
-                  <Text style={{ color: '#1f2937', fontSize: 14, lineHeight: 20 }}>
-                    "{item.text}"
-                  </Text>
-                </TouchableOpacity>
-
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-                  <Text style={{ color: '#6b7280', fontSize: 11 }}>
-                    {new Date(item.createdAt).toLocaleDateString()}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => handleRemoveHighlight(item)}
-                    style={{
-                      backgroundColor: '#fee2e2',
-                      paddingHorizontal: 10,
-                      paddingVertical: 5,
-                      borderRadius: 8,
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={{ color: '#b91c1c', fontWeight: '600', fontSize: 12 }}>Remove</Text>
-                  </TouchableOpacity>
-                </View>
+                <Ionicons
+                  name="bookmark-outline"
+                  size={48}
+                  color="rgba(255, 255, 255, 0.6)"
+                />
               </View>
-            );}
-            }
-          />
-        )}
+              <Text
+                style={{
+                  color: "rgba(255, 255, 255, 0.8)",
+                  fontSize: 18,
+                  fontWeight: "600",
+                  textAlign: "center",
+                  marginBottom: 8,
+                }}
+              >
+                No Highlights Yet
+              </Text>
+              <Text
+                style={{
+                  color: "rgba(255, 255, 255, 0.6)",
+                  fontSize: 14,
+                  textAlign: "center",
+                  lineHeight: 20,
+                }}
+              >
+                Start highlighting important passages to build your personal
+                study notes
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={highlights}
+              keyExtractor={(item) =>
+                item.id?.toString() || `${item.text}-${Math.random()}`
+              }
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              renderItem={({ item, index }) => {
+                const colorConfig =
+                  HIGHLIGHT_COLORS.find((c) => c.value === item.color) ||
+                  HIGHLIGHT_COLORS[0];
+                return (
+                  <View
+                    style={{
+                      backgroundColor: "rgba(255, 255, 255, 0.1)",
+                      borderRadius: 20,
+                      padding: 20,
+                      marginBottom: 15,
+                      borderWidth: 1,
+                      borderColor: "rgba(255, 255, 255, 0.1)",
+                    }}
+                  >
+                    {/* Highlight Header */}
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        marginBottom: 12,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 12,
+                          height: 12,
+                          borderRadius: 6,
+                          backgroundColor: item.color || "#fef9c3",
+                          marginRight: 10,
+                        }}
+                      />
+                      <Text
+                        style={{
+                          color: "rgba(255, 255, 255, 0.7)",
+                          fontSize: 12,
+                          fontWeight: "500",
+                        }}
+                      >
+                        Highlight #{highlights.length - index}
+                      </Text>
+                      <View style={{ flex: 1 }} />
+                      <Text
+                        style={{
+                          color: "rgba(255, 255, 255, 0.5)",
+                          fontSize: 11,
+                        }}
+                      >
+                        {new Date(item.createdAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+
+                    {/* Highlight Content */}
+                    <TouchableOpacity
+                      onPress={() => jumpToHighlight(item.id)}
+                      activeOpacity={0.8}
+                      style={{
+                        backgroundColor: item.color || "#fef9c3",
+                        borderRadius: 15,
+                        padding: 15,
+                        marginBottom: 15,
+                        borderWidth: 1,
+                        borderColor: colorConfig.border,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: "#1f2937",
+                          fontSize: 14,
+                          lineHeight: 20,
+                          fontWeight: "500",
+                        }}
+                      >
+                        "{item.text}"
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* Action Buttons */}
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        gap: 10,
+                      }}
+                    >
+                      <TouchableOpacity
+                        onPress={() => jumpToHighlight(item.id)}
+                        style={{
+                          flex: 1,
+                          backgroundColor: "rgba(102, 126, 234, 0.8)",
+                          paddingVertical: 10,
+                          paddingHorizontal: 15,
+                          borderRadius: 12,
+                          alignItems: "center",
+                          borderWidth: 1,
+                          borderColor: "rgba(102, 126, 234, 0.3)",
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text
+                          style={{
+                            color: "#667eea",
+                            fontWeight: "600",
+                            fontSize: 13,
+                          }}
+                        >
+                          📍 Jump to Text
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => handleRemoveHighlight(item)}
+                        style={{
+                          backgroundColor: "rgba(239, 68, 68, 0.8)",
+                          paddingVertical: 10,
+                          paddingHorizontal: 15,
+                          borderRadius: 12,
+                          alignItems: "center",
+                          borderWidth: 1,
+                          borderColor: "rgba(239, 68, 68, 0.3)",
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text
+                          style={{
+                            color: "#ef4444",
+                            fontWeight: "600",
+                            fontSize: 13,
+                          }}
+                        >
+                          🗑️ Remove
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              }}
+            />
+          )}
+        </View>
       </Animated.View>
     </View>
   );

@@ -27,6 +27,7 @@ app.use("/api/books", require("./routes/books"));
 app.use("/api/stats", require("./routes/stats"));
 app.use("/api/parental", require("./routes/parental"));
 app.use("/api/reading-sessions", require("./routes/reading-sessions"));
+app.use("/api/saved-books", require("./routes/savedBooks"));
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {
@@ -50,6 +51,7 @@ app.get("/", (req, res) => {
       stats: "/api/stats",
       parental: "/api/parental",
       readingSessions: "/api/reading-sessions",
+      savedBooks: "/api/saved-books",
       health: "/api/health",
     },
   });
@@ -75,6 +77,6 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("=".repeat(50));
   console.log(`🚀 Book Reader Server Started`);
   console.log("=".repeat(50));
-  console.log(`📱 Phone Access:    http://172.16.2.7:${PORT}`);
+  console.log(`📱 Phone Access:    http://172.16.2.8:${PORT}`);
   console.log(`💻 Local Access:    http://localhost:${PORT}`);
 });

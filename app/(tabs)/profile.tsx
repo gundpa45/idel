@@ -111,7 +111,7 @@ const Profile = () => {
   // Loading State
   if (loading) {
     return (
-      <View style={tw`flex-1 bg-gradient-to-br from-blue-50 to-indigo-50 justify-center items-center`}>
+      <View style={tw`flex-1 bg-blue-50 justify-center items-center`}>
         <ActivityIndicator size="large" color="#2563eb" />
         <Text style={tw`text-gray-600 mt-4 text-base`}>Loading profile...</Text>
       </View>
@@ -121,7 +121,7 @@ const Profile = () => {
   // Not Logged In State
   if (!user) {
     return (
-      <View style={tw`flex-1 bg-gradient-to-br from-blue-50 to-indigo-50`}>
+      <View style={tw`flex-1 bg-blue-50`}>
         <ScrollView
           contentContainerStyle={tw`flex-grow justify-center px-6 py-8`}
           showsVerticalScrollIndicator={false}
@@ -200,7 +200,7 @@ const Profile = () => {
 
   // Logged In State
   return (
-    <View style={tw`flex-1 bg-gradient-to-br from-blue-50 to-indigo-50`}>
+    <View style={tw`flex-1 bg-blue-50`}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={tw`pb-8`}
