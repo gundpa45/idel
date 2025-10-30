@@ -96,23 +96,34 @@
   // const styles = StyleSheet.create({})
 
 
-  import { StyleSheet, Text, View, Image, ScrollView, ActivityIndicator, FlatList } from 'react-native'
-import React, { useState } from 'react'
-import { images } from '@/constants/images'
-import { icons } from '@/constants/icons'
-import SearchBar from '@/components/SearchBar'
-import { useRouter } from 'expo-router'
-import useFetch from '@/services/useFetch'
-import { fetchMovies } from '@/services/api'
 import MoviesCard from '@/components/MoviesCard'
+import ReadingProgressTracker from '@/components/ReadingProgressTracker'
+import ReadingRecommendations from '@/components/ReadingRecommendations'
+import SearchBar from '@/components/SearchBar'
+import { icons } from '@/constants/icons'
+import { images } from '@/constants/images'
+import { AuthContext } from '@/context/AuthContext'
+import { useParentalControls } from '@/context/ParentalControlContext'
+import { fetchMovies } from '@/services/api'
+import useFetch from '@/services/useFetch'
+import { useRouter } from 'expo-router'
+import React, { useContext, useState } from 'react'
+import { ActivityIndicator, FlatList, Image, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 const Home = () => {
   const [dummy, setDummy] = useState("");
   const router = useRouter();
+  const authContext = useContext(AuthContext);
+  
+  const parentalControls = useParentalControls();
 
   const { data: movies, loading: moviesLoading, error: moviesError } = useFetch(() => fetchMovies({
     query: ''
   }))
+
+  // Check if user is a child with parental controls
+  const isChildAccount = authContext?.user?.accountType === 'child';
+  const hasParentalControls = isChildAccount && authContext?.user?.parentId && parentalControls;
 
   return (
     <View className="flex-1 bg-primary">
@@ -142,6 +153,20 @@ const Home = () => {
               placeholder="search for a movie"
               onPress={() => router.push({ pathname: "/search", params: { type: "movies" } })}
             />
+
+            {/* Show parental control features for child accounts */}
+            {hasParentalControls && (
+              <View className="mb-6">
+                <ReadingProgressTracker 
+                  userId={authContext?.user?.id?.toString()}
+                  showDetailedStats={false}
+                />
+                <ReadingRecommendations 
+                  userId={authContext?.user?.id?.toString()}
+                  showParentRecommendations={true}
+                />
+              </View>
+            )}
 
             <Text className='text-lg text-white font-bold mt-5 mb-3'>Latest Movies</Text>
             <FlatList

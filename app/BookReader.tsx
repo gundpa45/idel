@@ -1,4 +1,5 @@
 import { AuthContext } from '@/context/AuthContext';
+import { useParentalControls } from '@/context/ParentalControlContext';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useContext, useEffect, useRef, useState } from 'react';
@@ -30,6 +31,9 @@ const HIGHLIGHT_COLORS = [
 const BookReaderScreen = () => {
   const { link, title, bookId } = useLocalSearchParams();
   const authContext = useContext(AuthContext);
+  
+  const parentalControls = useParentalControls();
+  
   const router = useRouter();
   const webViewRef = useRef<WebView>(null);
   const sidebarAnim = useRef(new Animated.Value(0)).current;
@@ -47,6 +51,9 @@ const BookReaderScreen = () => {
   const [localHighlights, setLocalHighlights] = useState<Highlight[]>([]);
   const [showTextInput, setShowTextInput] = useState(false);
   const [inputText, setInputText] = useState('');
+  const [contentBlocked, setContentBlocked] = useState(false);
+  const [timeRestricted, setTimeRestricted] = useState(false);
+  const [currentReadingSession, setCurrentReadingSession] = useState<any>(null);
 
   const currentBookId = typeof bookId === 'string' ? bookId : '';
   const currentTitle = typeof title === 'string' ? title : 'Unknown';
@@ -107,11 +114,21 @@ const BookReaderScreen = () => {
     if (userId && currentBookId) {
       fetchHighlights();
       fetchOrCreateBookStats();
+      
+      // Start reading session for parental tracking
+      if (currentTitle && authContext?.user) {
+        startReadingSession();
+      }
     } else {
       // If no user or book ID, assume offline mode
       setIsOfflineMode(true);
     }
-  }, [userId, currentBookId]);
+
+    // Cleanup: end reading session when component unmounts
+    return () => {
+      endReadingSession();
+    };
+  }, [userId, currentBookId, currentTitle]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -121,6 +138,97 @@ const BookReaderScreen = () => {
       }
     };
   }, []);
+
+  // Check parental restrictions
+  useEffect(() => {
+    if (parentalControls && typeof parentalControls.checkTimeRestrictions === 'function') {
+      // Check time restrictions
+      const timeAllowed = parentalControls.checkTimeRestrictions();
+      setTimeRestricted(!timeAllowed);
+
+      // For content restrictions, we'd need book metadata
+      // This is a placeholder - in real implementation, you'd fetch book metadata
+      const mockBookMetadata: BookMetadata = {
+        id: currentBookId,
+        title: currentTitle,
+        author: 'Unknown',
+        genre: ['Fiction'], // This would come from your book database
+        ageRating: '12+',
+        difficulty: 'intermediate',
+        topics: ['Adventure'],
+        language: 'English'
+      };
+
+      if (typeof parentalControls.checkContentRestrictions === 'function') {
+        const contentAllowed = parentalControls.checkContentRestrictions(mockBookMetadata);
+        setContentBlocked(!contentAllowed);
+      }
+    }
+  }, [currentBookId, currentTitle, parentalControls]);
+
+  // Start reading session
+  const startReadingSession = async () => {
+    if (!authContext?.user || !authContext?.token) return;
+
+    try {
+      const sessionData = {
+        userId: authContext.user.id,
+        userName: authContext.user.name,
+        bookId: currentBookId,
+        bookTitle: currentTitle,
+        startTime: new Date().toISOString(),
+      };
+
+      const response = await fetch(`${API_BASE_URL}/reading-sessions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authContext.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(sessionData),
+      });
+
+      if (response.ok) {
+        const session = await response.json();
+        setCurrentReadingSession(session);
+        console.log('Reading session started:', session);
+      }
+    } catch (error) {
+      console.error('Error starting reading session:', error);
+    }
+  };
+
+  // End reading session
+  const endReadingSession = async () => {
+    if (!currentReadingSession || !authContext?.token) return;
+
+    try {
+      const endTime = new Date().toISOString();
+      const duration = Math.round((new Date(endTime).getTime() - new Date(currentReadingSession.startTime).getTime()) / 60000);
+
+      const updateData = {
+        endTime,
+        duration,
+        status: 'completed'
+      };
+
+      const response = await fetch(`${API_BASE_URL}/reading-sessions/${currentReadingSession._id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${authContext.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updateData),
+      });
+
+      if (response.ok) {
+        console.log('Reading session ended:', duration, 'minutes');
+        setCurrentReadingSession(null);
+      }
+    } catch (error) {
+      console.error('Error ending reading session:', error);
+    }
+  };
 
   // 📥 Fetch highlights from the backend (filtered by user and book)
   const fetchHighlights = async () => {
@@ -762,6 +870,61 @@ const BookReaderScreen = () => {
     })();
     true; // Required for injectedJavaScript to work correctly
   `;
+
+  // Show restriction screens if needed
+  if (contentBlocked) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+        <Stack.Screen options={{ title: 'Content Restricted', headerShown: true }} />
+        <Ionicons name="shield-outline" size={64} color="#ef4444" />
+        <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#1f2937', marginTop: 16, textAlign: 'center' }}>
+          Content Restricted
+        </Text>
+        <Text style={{ fontSize: 16, color: '#6b7280', marginTop: 8, textAlign: 'center' }}>
+          This book is not available due to parental control settings.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={{
+            backgroundColor: '#2563eb',
+            paddingHorizontal: 24,
+            paddingVertical: 12,
+            borderRadius: 12,
+            marginTop: 24,
+          }}
+        >
+          <Text style={{ color: 'white', fontWeight: 'bold' }}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (timeRestricted) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+        <Stack.Screen options={{ title: 'Reading Time Restricted', headerShown: true }} />
+        <Ionicons name="time-outline" size={64} color="#f59e0b" />
+        <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#1f2937', marginTop: 16, textAlign: 'center' }}>
+          Reading Time Restricted
+        </Text>
+        <Text style={{ fontSize: 16, color: '#6b7280', marginTop: 8, textAlign: 'center' }}>
+          Reading is not allowed during this time period. Please try again later.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={{
+            backgroundColor: '#2563eb',
+            paddingHorizontal: 24,
+            paddingVertical: 12,
+            borderRadius: 12,
+            marginTop: 24,
+          }}
+        >
+          <Text style={{ color: 'white', fontWeight: 'bold' }}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>

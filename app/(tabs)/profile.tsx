@@ -1,13 +1,16 @@
 import { AuthContext } from '@/context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useContext, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     Dimensions,
+    Modal,
     Platform,
     ScrollView,
     Text,
+    TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
@@ -19,12 +22,64 @@ const Profile = () => {
   const router = useRouter();
   const authContext = useContext(AuthContext);
   const [loading, setLoading] = useState(true);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({ name: '', email: '' });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     // Since AuthContext loads user data automatically, we just need to wait for it
     const timer = setTimeout(() => setLoading(false), 100);
     return () => clearTimeout(timer);
   }, []);
+
+  // Initialize edit form when user data is available
+  useEffect(() => {
+    if (user) {
+      setEditForm({
+        name: user.name || '',
+        email: user.email || ''
+      });
+    }
+  }, [user]);
+
+  const handleEditProfile = () => {
+    setShowEditModal(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!editForm.name.trim()) {
+      Alert.alert('Error', 'Name cannot be empty');
+      return;
+    }
+
+    if (!/\S+@\S+\.\S+/.test(editForm.email)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Update user data in AuthContext (offline mode)
+      const updatedUser = {
+        ...user,
+        name: editForm.name.trim(),
+        email: editForm.email.trim(),
+        updatedAt: new Date().toISOString()
+      };
+
+      if (authContext) {
+        await authContext.login(authContext.token, updatedUser);
+      }
+
+      setShowEditModal(false);
+      Alert.alert('Success', 'Profile updated successfully!');
+    } catch (error) {
+      console.error('Profile update error:', error);
+      Alert.alert('Error', 'Failed to update profile');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const user = authContext?.user;
 
@@ -190,10 +245,13 @@ const Profile = () => {
           {/* Edit Profile Button */}
           <TouchableOpacity
             style={tw`bg-blue-50 rounded-xl py-3 items-center justify-center border border-blue-200`}
-            onPress={() => Alert.alert('Info', 'Edit profile feature coming soon!')}
+            onPress={handleEditProfile}
             activeOpacity={0.7}
           >
-            <Text style={tw`text-blue-600 font-semibold text-base`}>✏️  Edit Profile</Text>
+            <View style={tw`flex-row items-center`}>
+              <Ionicons name="create-outline" size={20} color="#2563eb" />
+              <Text style={tw`text-blue-600 font-semibold text-base ml-2`}>Edit Profile</Text>
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -214,6 +272,24 @@ const Profile = () => {
               <View>
                 <Text style={tw`text-gray-800 font-semibold text-base`}>Settings</Text>
                 <Text style={tw`text-gray-500 text-xs`}>App preferences & privacy</Text>
+              </View>
+            </View>
+            <Text style={tw`text-gray-400 text-xl`}>›</Text>
+          </TouchableOpacity>
+
+          {/* Parental Dashboard Access */}
+          <TouchableOpacity
+            style={tw`bg-white rounded-2xl p-4 mb-3 flex-row items-center justify-between shadow-md ${Platform.OS === 'android' ? 'elevation-3' : ''}`}
+            onPress={() => router.push('/auth/login')}
+            activeOpacity={0.7}
+          >
+            <View style={tw`flex-row items-center`}>
+              <View style={tw`w-12 h-12 bg-orange-100 rounded-xl items-center justify-center mr-4`}>
+                <Text style={tw`text-2xl`}>👨‍👩‍👧‍👦</Text>
+              </View>
+              <View>
+                <Text style={tw`text-gray-800 font-semibold text-base`}>Parental Dashboard</Text>
+                <Text style={tw`text-gray-500 text-xs`}>Monitor child's reading activity</Text>
               </View>
             </View>
             <Text style={tw`text-gray-400 text-xl`}>›</Text>
@@ -272,6 +348,84 @@ const Profile = () => {
           Made with ❤️ • v1.0.0
         </Text>
       </ScrollView>
+
+      {/* Edit Profile Modal */}
+      <Modal
+        visible={showEditModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowEditModal(false)}
+      >
+        <View style={tw`flex-1 bg-black bg-opacity-50 justify-center items-center p-6`}>
+          <View style={tw`bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl`}>
+            <View style={tw`flex-row items-center justify-between mb-6`}>
+              <Text style={tw`text-xl font-bold text-gray-800`}>Edit Profile</Text>
+              <TouchableOpacity
+                onPress={() => setShowEditModal(false)}
+                style={tw`p-2`}
+              >
+                <Ionicons name="close" size={24} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Name Input */}
+            <View style={tw`mb-4`}>
+              <Text style={tw`text-sm font-semibold text-gray-700 mb-2`}>Full Name</Text>
+              <View style={tw`border-2 border-gray-200 rounded-xl bg-gray-50 flex-row items-center px-4`}>
+                <Ionicons name="person-outline" size={20} color="#6b7280" />
+                <TextInput
+                  placeholder="Enter your name"
+                  value={editForm.name}
+                  onChangeText={(text) => setEditForm(prev => ({ ...prev, name: text }))}
+                  style={tw`flex-1 py-4 text-base text-gray-800 ml-3`}
+                  placeholderTextColor="#9CA3AF"
+                />
+              </View>
+            </View>
+
+            {/* Email Input */}
+            <View style={tw`mb-6`}>
+              <Text style={tw`text-sm font-semibold text-gray-700 mb-2`}>Email Address</Text>
+              <View style={tw`border-2 border-gray-200 rounded-xl bg-gray-50 flex-row items-center px-4`}>
+                <Ionicons name="mail-outline" size={20} color="#6b7280" />
+                <TextInput
+                  placeholder="Enter your email"
+                  value={editForm.email}
+                  onChangeText={(text) => setEditForm(prev => ({ ...prev, email: text }))}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  style={tw`flex-1 py-4 text-base text-gray-800 ml-3`}
+                  placeholderTextColor="#9CA3AF"
+                />
+              </View>
+            </View>
+
+            {/* Action Buttons */}
+            <View style={tw`flex-row gap-3`}>
+              <TouchableOpacity
+                onPress={() => setShowEditModal(false)}
+                style={tw`flex-1 bg-gray-100 rounded-xl py-4 items-center`}
+                activeOpacity={0.7}
+              >
+                <Text style={tw`text-gray-700 font-semibold text-base`}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSaveProfile}
+                disabled={saving}
+                style={tw`flex-1 bg-blue-600 rounded-xl py-4 items-center ${saving ? 'opacity-70' : ''}`}
+                activeOpacity={0.8}
+              >
+                {saving ? (
+                  <ActivityIndicator color="white" size="small" />
+                ) : (
+                  <Text style={tw`text-white font-bold text-base`}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
